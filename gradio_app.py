@@ -1222,9 +1222,22 @@ async def download_all_selected(request: dict):
         # 对照 config/file_list.json，仅保留已完成的文件名
         try:
             server_list = load_server_file_list()
-            completed_set = {f.get("name") for f in server_list if str(f.get("status")).lower() in {"completed", "success"}}
+            completed_names = [f.get("name") for f in server_list if str(f.get("status")).lower() in {"completed", "success"}]
+            completed_set = {n for n in completed_names if n}
+            # 同时按“规范化stem”匹配，避免扩展名或连字符差异导致遗漏
+            def norm_stem(name: str) -> str:
+                s = Path(name).stem
+                return s.replace('-', '_')
+            completed_stem_set = {norm_stem(n) for n in completed_set}
             if completed_set:
-                file_names = [n for n in file_names if n in completed_set]
+                filtered = []
+                for n in file_names:
+                    if n in completed_set:
+                        filtered.append(n)
+                        continue
+                    if norm_stem(n) in completed_stem_set:
+                        filtered.append(n)
+                file_names = filtered
         except Exception as _:
             # 读取失败则忽略此过滤，按原逻辑处理
             pass
@@ -1238,12 +1251,13 @@ async def download_all_selected(request: dict):
             normalized = stem.replace('-', '_')
             # 使用边界匹配，避免 "_1" 误匹配 "_11"，并兼容中文
             try:
-                boundary_pattern = re.compile(rf"(^|_){re.escape(normalized)}_", re.UNICODE)
+                # 三种匹配：精确匹配、后接下划线的前缀匹配、目录名等于stem
+                exact_pattern = re.compile(rf"(^|_)({re.escape(normalized)})(_|$)", re.UNICODE)
             except Exception:
                 # 回退：简单包含匹配
                 boundary_pattern = None
-            if boundary_pattern:
-                candidates = [d for d in all_dirs if boundary_pattern.search(d)]
+            if exact_pattern:
+                candidates = [d for d in all_dirs if exact_pattern.search(d)]
             else:
                 candidates = [d for d in all_dirs if normalized in d]
             candidates.sort(reverse=True)
