@@ -1271,7 +1271,7 @@ async def download_all_selected(request: dict):
 @app.get("/output/find_pdf")
 async def find_pdf(q: str):
     """根据关键词（原始文件名或任务目录名）在 ./output 下寻找可预览的 PDF。
-    优先匹配包含关键词的目录下 vlm 子目录中的 *_origin.pdf，其次任意 .pdf。
+    优先匹配包含关键词的目录下 auto 或 vlm 子目录中的 *_origin.pdf，其次任意 .pdf。
     返回相对 ./output 的路径，用于 /output/raw/{path} 访问。
     """
     try:
@@ -1293,8 +1293,8 @@ async def find_pdf(q: str):
         hit_any = None
 
         for root, dirs, files in os.walk(base_dir):
-            # 仅在 vlm 子目录里找
-            if os.path.basename(root) != "vlm":
+            # 仅在 auto 或 vlm 子目录里找
+            if os.path.basename(root) not in ("auto", "vlm"):
                 continue
             rel_dir = os.path.relpath(root, base_dir)
             for file in files:
