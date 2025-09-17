@@ -720,7 +720,7 @@
                     formData.append('server_url', document.getElementById('serverUrl').value || null);
                     formData.append('return_md', true);
                     formData.append('return_images', true);
-                    formData.append('response_format_zip', true);
+                    formData.append('response_format_zip', false);
                     formData.append('start_page_id', 0);
                     formData.append('end_page_id', parseInt(document.getElementById('maxPages').value) - 1);
 
@@ -818,12 +818,10 @@
                 return `${year}${month}${day}_${hours}${minutes}${seconds}`;
             }
             
-            // 安全文件名处理（只保留字母、数字、下划线和点）
+            // 安全文件名处理（保留中文、字母、数字、下划线和点）
             safeStem(filename) {
-                // 移除扩展名
                 const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
-                // 只保留字母、数字、下划线和点，其他字符替换为下划线
-                return nameWithoutExt.replace(/[^\w.]/g, '_');
+                return nameWithoutExt.replace(/[^\w.\u4e00-\u9fff]/g, '_');
             }
             
             
@@ -864,9 +862,24 @@
             }
 
 
-            downloadResult(filename) {
-                // 调用后端API下载文件目录（ZIP打包）
-                window.open(`/download_file/${encodeURIComponent(filename)}`, '_blank');
+            async downloadResult(filename) {
+                // 以blob下载并保存为.zip，避免浏览器直接打开URL导致展示非zip名
+                try {
+                    const res = await fetch(`/download_file/${encodeURIComponent(filename)}`);
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const blob = await res.blob();
+                    const blobUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = `${this.safeStem(filename)}.zip`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(blobUrl);
+                } catch (err) {
+                    console.error('下载失败:', err);
+                    alert('下载失败，请稍后重试');
+                }
             }
 
             downloadAllResults() {

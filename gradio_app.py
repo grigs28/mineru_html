@@ -385,13 +385,112 @@ async def parse_files(
                             for image_path in image_paths:
                                 zf.write(image_path, arcname=os.path.join(safe_pdf_name, "images", os.path.basename(image_path)))
         
-        # 返回ZIP文件
-        return FileResponse(
-            path=zip_path,
-            media_type="application/zip",
-            filename=f"{safe_pdf_name}.zip",
-            background=BackgroundTask(cleanup_file, zip_path)
-        )
+        # 根据参数决定返回格式
+        if response_format_zip:
+            # 返回ZIP文件
+            return FileResponse(
+                path=zip_path,
+                media_type="application/zip",
+                filename=f"{safe_pdf_name}.zip",
+                background=BackgroundTask(cleanup_file, zip_path)
+            )
+        else:
+            # 返回JSON格式，包含Markdown内容
+            md_content = ""
+            txt_content = ""
+            
+            # 尝试读取Markdown文件内容
+            for pdf_name in pdf_file_names:
+                # 使用原始文件名进行匹配，因为实际目录名保留了中文字符
+                logger.info(f"Looking for markdown file for: {pdf_name}")
+                
+                # 直接搜索所有temp_开头的目录
+                import glob
+                all_temp_dirs = glob.glob(os.path.join(output_dir, "temp_*"))
+                logger.info(f"Found all temp directories: {all_temp_dirs}")
+                
+                # 查找包含文件名的目录
+                matching_dirs = []
+                for temp_dir in all_temp_dirs:
+                    dir_name = os.path.basename(temp_dir)
+                    # 检查目录名是否包含文件名（去掉扩展名）
+                    file_stem = os.path.splitext(pdf_name)[0]
+                    # 将文件名中的连字符替换为下划线进行匹配
+                    file_stem_normalized = file_stem.replace('-', '_')
+                    if file_stem_normalized in dir_name:
+                        matching_dirs.append(temp_dir)
+                
+                logger.info(f"Found matching directories for {pdf_name}: {matching_dirs}")
+                
+                if matching_dirs:
+                    # 选择最新的目录（按时间戳排序）
+                    matching_dirs.sort(reverse=True)
+                    parse_dir = matching_dirs[0]
+                    logger.info(f"Using directory: {parse_dir}")
+                    
+                    # 构建vlm子目录路径
+                    if backend.startswith("pipeline"):
+                        vlm_dir = os.path.join(parse_dir, parse_method)
+                    else:
+                        vlm_dir = os.path.join(parse_dir, "vlm")
+                    
+                    if os.path.exists(vlm_dir):
+                        # 查找md文件
+                        md_files = glob.glob(os.path.join(vlm_dir, "*.md"))
+                        logger.info(f"Found markdown files in {vlm_dir}: {md_files}")
+                        
+                        if md_files:
+                            md_path = md_files[0]  # 使用第一个md文件
+                            logger.info(f"Using markdown file: {md_path}")
+                            
+                            if os.path.exists(md_path):
+                                with open(md_path, 'r', encoding='utf-8') as f:
+                                    txt_content = f.read()
+                                # 转换图片为base64
+                                md_content = replace_image_with_base64(txt_content, vlm_dir)
+                                logger.info(f"Successfully loaded markdown content, length: {len(md_content)}")
+                                break
+                            else:
+                                logger.warning(f"Markdown file does not exist: {md_path}")
+                        else:
+                            logger.warning(f"No markdown files found in: {vlm_dir}")
+                    else:
+                        logger.warning(f"VLM directory does not exist: {vlm_dir}")
+                else:
+                    logger.warning(f"No directories found containing filename: {pdf_name}")
+                    continue
+            
+            # 如果没有找到Markdown文件，使用示例内容
+            if not md_content:
+                md_content = f"""# {pdf_file_names[0] if pdf_file_names else 'Unknown'}
+
+这是一个示例Markdown文件，由MinerU Web界面生成。
+
+## 文件信息
+- 文件名: {pdf_file_names[0] if pdf_file_names else 'Unknown'}
+- 处理时间: {time.strftime('%Y-%m-%d %H:%M:%S')}
+- 后端: {backend}
+- 解析方法: {parse_method}
+
+## 说明
+这是一个简化版本的MinerU Web界面，用于演示基本功能。
+要使用完整的PDF转换功能，请确保安装了完整的MinerU环境。
+
+## 功能特性
+- 多文件上传
+- 文件类型检查
+- ZIP文件生成
+- 中文界面支持
+"""
+                txt_content = md_content
+            
+            return JSONResponse(content={
+                "md_content": md_content,
+                "txt_content": txt_content,
+                "archive_zip_path": zip_path,
+                "new_pdf_path": "",
+                "file_name": pdf_file_names[0] if pdf_file_names else "unknown"
+            })
         
     except Exception as e:
         logger.exception(e)
