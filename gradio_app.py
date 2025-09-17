@@ -347,14 +347,16 @@ if not os.path.exists(static_dir):
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-# 服务器端文件列表存储
-FILE_LIST_PATH = os.path.join("./config", "file_list.json")
+# 服务器端文件列表存储（使用相对于当前文件的绝对路径，避免工作目录差异影响）
+BASE_DIR = os.path.dirname(__file__)
+CONFIG_DIR = os.path.join(BASE_DIR, "config")
+FILE_LIST_PATH = os.path.join(CONFIG_DIR, "file_list.json")
 
 def _ensure_output_dir():
     os.makedirs("./output", exist_ok=True)
 
 def _ensure_config_dir():
-    os.makedirs("./config", exist_ok=True)
+    os.makedirs(CONFIG_DIR, exist_ok=True)
 
 def load_server_file_list() -> list:
     _ensure_config_dir()
