@@ -1236,8 +1236,16 @@ async def download_all_selected(request: dict):
         for name in file_names:
             stem = Path(name).stem
             normalized = stem.replace('-', '_')
-            # 找出包含该stem的所有 temp_ 目录
-            candidates = [d for d in all_dirs if normalized in d]
+            # 使用边界匹配，避免 "_1" 误匹配 "_11"，并兼容中文
+            try:
+                boundary_pattern = re.compile(rf"(^|_){re.escape(normalized)}_", re.UNICODE)
+            except Exception:
+                # 回退：简单包含匹配
+                boundary_pattern = None
+            if boundary_pattern:
+                candidates = [d for d in all_dirs if boundary_pattern.search(d)]
+            else:
+                candidates = [d for d in all_dirs if normalized in d]
             candidates.sort(reverse=True)
             chosen = None
             for d in candidates:
