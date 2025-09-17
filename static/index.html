@@ -831,23 +831,16 @@
                 // 切换到Markdown rendering标签页
                 this.switchToTab('markdown-rendering');
                 
-                // 如果没有提供内容，从后端API获取
+                // 如果没有提供内容，从已存储的结果中获取
                 if (!mdContent || !txtContent) {
-                    try {
-                        const response = await fetch(`/api/markdown/${encodeURIComponent(filename)}`);
-                        if (response.ok) {
-                            const data = await response.json();
-                            mdContent = data.processed_content;
-                            txtContent = data.raw_content;
-                        } else {
-                            // 如果API失败，显示错误信息
-                            mdContent = '## 错误\n\n无法加载Markdown内容';
-                            txtContent = '无法加载Markdown内容';
-                        }
-                    } catch (error) {
-                        console.error('获取Markdown内容失败:', error);
-                        mdContent = '## 错误\n\n无法加载Markdown内容';
-                        txtContent = '无法加载Markdown内容';
+                    const result = this.results.get(filename);
+                    if (result && result.mdContent && result.txtContent) {
+                        mdContent = result.mdContent;
+                        txtContent = result.txtContent;
+                    } else {
+                        // 如果没有存储的内容，显示提示信息
+                        mdContent = '## 提示\n\n暂无Markdown内容，请先转换文件。';
+                        txtContent = '暂无Markdown内容，请先转换文件。';
                     }
                 }
                 

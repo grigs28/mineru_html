@@ -112,8 +112,8 @@ def cleanup_file(file_path: str) -> None:
 def safe_stem(file_path):
     """安全地获取文件名的stem部分"""
     stem = Path(file_path).stem
-    # 只保留字母、数字、下划线和点，其他字符替换为下划线
-    return re.sub(r'[^\w.]', '_', stem)
+    # 只保留字母、数字、下划线、点和中文字符，其他字符替换为下划线
+    return re.sub(r'[^\w.\u4e00-\u9fff]', '_', stem)
 
 def to_pdf(file_path):
     """将文件转换为PDF格式"""
@@ -216,75 +216,6 @@ async def get_changelog():
         return JSONResponse(
             status_code=500,
             content={"error": f"读取CHANGELOG失败: {str(e)}"}
-        )
-
-@app.get("/api/markdown/{filename}")
-async def get_markdown_content(filename: str):
-    """获取指定文件的Markdown内容，包括图片base64转换"""
-    try:
-        output_dir = "./output"
-        safe_filename = safe_stem(filename)
-        matching_dirs = []
-        
-        if os.path.exists(output_dir):
-            for item in os.listdir(output_dir):
-                item_path = os.path.join(output_dir, item)
-                if os.path.isdir(item_path):
-                    if item.startswith(f"temp_{safe_filename}_"):
-                        matching_dirs.append(item)
-                    elif item.startswith(f"{safe_filename}_"):
-                        matching_dirs.append(item)
-        
-        if not matching_dirs:
-            # 尝试宽松匹配
-            filename_without_ext = Path(filename).stem
-            safe_filename_loose = re.sub(r'[^\w\u4e00-\u9fff]', '_', filename_without_ext)
-            
-            for item in os.listdir(output_dir):
-                item_path = os.path.join(output_dir, item)
-                if os.path.isdir(item_path):
-                    if (f"temp_{safe_filename_loose}_" in item or 
-                        f"{safe_filename_loose}_" in item):
-                        matching_dirs.append(item)
-        
-        if not matching_dirs:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"未找到文件 {filename} 的处理结果"}
-            )
-        
-        matching_dirs.sort(reverse=True)
-        target_dir = matching_dirs[0]
-        file_path = os.path.join(output_dir, target_dir)
-        
-        # 查找Markdown文件
-        md_files = glob.glob(os.path.join(file_path, "*.md"))
-        if not md_files:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"未找到 {filename} 的Markdown文件"}
-            )
-        
-        md_file = md_files[0]
-        
-        # 读取原始Markdown内容
-        with open(md_file, 'r', encoding='utf-8') as f:
-            raw_content = f.read()
-        
-        # 转换图片为base64
-        processed_content = replace_image_with_base64(raw_content, file_path)
-        
-        return JSONResponse(content={
-            "raw_content": raw_content,
-            "processed_content": processed_content,
-            "filename": filename
-        })
-        
-    except Exception as e:
-        logger.exception(e)
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"获取Markdown内容失败: {str(e)}"}
         )
 
 @app.get("/", response_class=HTMLResponse)
