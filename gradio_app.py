@@ -1246,22 +1246,56 @@ async def download_all_selected(request: dict):
         selected_dirs = []
         all_dirs = [d for d in os.listdir(output_dir) if os.path.isdir(os.path.join(output_dir, d))]
 
+        # 构建 name -> 完成状态下的 taskId 列表
+        name_to_completed_task_ids: dict[str, list[str]] = {}
+        try:
+            for item in load_server_file_list():
+                try:
+                    if str(item.get("status")).lower() not in {"completed", "success"}:
+                        continue
+                    nm = item.get("name")
+                    tid = item.get("taskId") or item.get("task_id")
+                    if nm and tid:
+                        name_to_completed_task_ids.setdefault(nm, []).append(str(tid))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
         for name in file_names:
             stem = Path(name).stem
             normalized = stem.replace('-', '_')
-            # 使用边界匹配，避免 "_1" 误匹配 "_11"，并兼容中文
-            try:
-                # 三种匹配：精确匹配、后接下划线的前缀匹配、目录名等于stem
-                exact_pattern = re.compile(rf"(^|_)({re.escape(normalized)})(_|$)", re.UNICODE)
-            except Exception:
-                # 回退：简单包含匹配
-                boundary_pattern = None
-            if exact_pattern:
-                candidates = [d for d in all_dirs if exact_pattern.search(d)]
-            else:
-                candidates = [d for d in all_dirs if normalized in d]
-            candidates.sort(reverse=True)
             chosen = None
+
+            # 1) 先用 taskId 精确匹配（目录名前缀）
+            for tid in name_to_completed_task_ids.get(name, []) or []:
+                prefix = f"{tid}_"
+                hit = next((d for d in sorted(all_dirs, reverse=True) if d.startswith(prefix)), None)
+                if hit:
+                    chosen = hit
+                    break
+
+            # 2) 再用名称边界匹配，避免 _1 命中 _11
+            if not chosen:
+                try:
+                    exact_pattern = re.compile(rf"(^|_)({re.escape(normalized)})(_|$)", re.UNICODE)
+                except Exception:
+                    exact_pattern = None
+                if exact_pattern:
+                    candidates = [d for d in all_dirs if exact_pattern.search(d)]
+                else:
+                    candidates = [d for d in all_dirs if normalized in d]
+                candidates.sort(reverse=True)
+                for d in candidates:
+                    dir_path = os.path.join(output_dir, d)
+                    has_md = False
+                    for root, _, files in os.walk(dir_path):
+                        if any(f.lower().endswith('.md') for f in files):
+                            has_md = True
+                            break
+                    if has_md:
+                        chosen = d
+                        break
             for d in candidates:
                 dir_path = os.path.join(output_dir, d)
                 has_md = False
