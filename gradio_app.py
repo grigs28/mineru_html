@@ -820,14 +820,11 @@ async def read_root():
         
         function downloadFile(filename) {
             const state = fileStates.get(filename);
-            if (state && state.result) {
-                const blob = new Blob([state.result], { type: 'text/markdown' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename.replace(/\\.[^/.]+$/, '') + '.md';
-                a.click();
-                URL.revokeObjectURL(url);
+            if (state && state.status === FileStatus.COMPLETED) {
+                // 调用后端API下载文件目录
+                window.open(`/download_file/${encodeURIComponent(filename)}`, '_blank');
+            } else {
+                alert('文件尚未处理完成，无法下载');
             }
         }
         
@@ -842,10 +839,8 @@ async def read_root():
                 return;
             }
             
-            // 创建ZIP文件（这里简化处理，实际应该调用后端API）
-            completedFiles.forEach(file => {
-                downloadFile(file.name);
-            });
+            // 调用后端API下载所有文件
+            window.open('/download_all', '_blank');
         }
     </script>
 </body>
@@ -1121,6 +1116,110 @@ async def delete_output_files(request: dict):
         return JSONResponse(
             status_code=500,
             content={"error": f"删除文件失败: {str(e)}"}
+        )
+
+@app.get("/download_file/{filename}")
+async def download_file(filename: str):
+    """下载单个文件的处理结果目录（ZIP打包）"""
+    try:
+        output_dir = "./output"
+        file_path = os.path.join(output_dir, filename)
+        
+        if not os.path.exists(file_path):
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"文件不存在: {filename}"}
+            )
+        
+        if os.path.isfile(file_path):
+            # 如果是单个文件，直接返回
+            return FileResponse(
+                path=file_path,
+                filename=filename,
+                media_type="application/octet-stream"
+            )
+        elif os.path.isdir(file_path):
+            # 如果是目录，创建ZIP文件
+            zip_path = f"{file_path}.zip"
+            
+            # 创建ZIP文件
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for root, dirs, files in os.walk(file_path):
+                    for file in files:
+                        file_path_full = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path_full, file_path)
+                        zipf.write(file_path_full, arcname)
+            
+            # 返回ZIP文件
+            return FileResponse(
+                path=zip_path,
+                filename=f"{filename}.zip",
+                media_type="application/zip",
+                background=BackgroundTask(lambda: os.remove(zip_path))  # 下载后删除临时ZIP文件
+            )
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"无效的文件类型: {filename}"}
+            )
+            
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"下载文件失败: {str(e)}"}
+        )
+
+@app.get("/download_all")
+async def download_all():
+    """下载所有处理成功的文件目录（ZIP打包）"""
+    try:
+        output_dir = "./output"
+        if not os.path.exists(output_dir):
+            return JSONResponse(
+                status_code=404,
+                content={"error": "输出目录不存在"}
+            )
+        
+        # 获取所有目录
+        directories = []
+        for item in os.listdir(output_dir):
+            item_path = os.path.join(output_dir, item)
+            if os.path.isdir(item_path):
+                directories.append(item)
+        
+        if not directories:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "没有可下载的目录"}
+            )
+        
+        # 创建临时ZIP文件
+        zip_path = os.path.join(output_dir, "all_results.zip")
+        
+        # 创建ZIP文件
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for directory in directories:
+                dir_path = os.path.join(output_dir, directory)
+                for root, dirs, files in os.walk(dir_path):
+                    for file in files:
+                        file_path_full = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path_full, output_dir)
+                        zipf.write(file_path_full, arcname)
+        
+        # 返回ZIP文件
+        return FileResponse(
+            path=zip_path,
+            filename="all_results.zip",
+            media_type="application/zip",
+            background=BackgroundTask(lambda: os.remove(zip_path))  # 下载后删除临时ZIP文件
+        )
+        
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"下载所有文件失败: {str(e)}"}
         )
 
 @click.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
