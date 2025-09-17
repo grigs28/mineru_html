@@ -233,7 +233,7 @@ class TaskManager:
         if task and task.status == TaskStatus.PENDING:
             task.status = TaskStatus.QUEUED
             task.message = "已加入队列"
-            task.start_time = datetime.now()  # 记录开始时间
+            # 开始时间应在进入 PROCESSING 时设置，这里不设置
             self.save_tasks()
             logger.info(f"任务 {task_id} 已加入队列")
             
