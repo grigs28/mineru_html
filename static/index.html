@@ -522,10 +522,9 @@
                         cardsContainer.appendChild(fileCard);
                     });
 
-                    // 统计数量：已上传 + 结果（去重）
-                    const names = new Set(this.uploadedFiles.map(f => f.name));
-                    for (const k of this.results.keys()) names.add(k);
-                    if (fileCountBadge) fileCountBadge.textContent = String(names.size);
+                    // 统计数量：仅显示“文件列表中已成功”的数量（与打包一致）
+                    const completedCount = (this.uploadedFiles || []).filter(f => f && f.status === 'completed').length;
+                    if (fileCountBadge) fileCountBadge.textContent = String(completedCount);
 
                 } else {
                     // 显示空状态
@@ -1397,8 +1396,10 @@
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     const ts = this.getCurrentTimestamp();
+                    const badge = document.getElementById('fileCount');
+                    const countText = badge ? badge.textContent : String(completed.length);
                     a.href = url;
-                    a.download = `all_results_${ts}.zip`;
+                    a.download = `completed_${countText}_all_results_${ts}.zip`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
