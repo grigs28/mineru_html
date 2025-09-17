@@ -88,6 +88,15 @@
                     <p>正在处理文件，请稍候...</p>
                 </div>
 
+                <!-- 后台处理通知 -->
+                <div class="background-processing-notice" id="backgroundNotice" style="display: none;">
+                    <div class="notice-icon">🔔</div>
+                    <div class="notice-content">
+                        <h4>后台处理已启动</h4>
+                        <p>您可以安全地关闭浏览器，任务将在后台继续运行。稍后重新打开页面即可查看结果。</p>
+                    </div>
+                </div>
+
 
                 <!-- PDF预览区域 -->
                 <div class="pdf-preview-section" id="pdfPreviewSection">
@@ -243,7 +252,11 @@
                             uploadTime: f.uploadTime || null,
                             startTime: f.startTime || null,
                             endTime: f.endTime || null,
-                            processingTime: f.processingTime || null
+                            processingTime: f.processingTime || null,
+                            taskId: f.taskId || null,  // 保持任务ID信息
+                            progress: f.progress || 0,  // 保持进度信息
+                            message: f.message || '',   // 保持消息信息
+                            errorMessage: f.errorMessage || null  // 保持错误信息
                         }));
                         this.uploadedFiles = merged;
                         this.updateFileList();
@@ -265,7 +278,11 @@
                             uploadTime: f.uploadTime || null,
                             startTime: f.startTime || null,
                             endTime: f.endTime || null,
-                            processingTime: f.processingTime || null
+                        processingTime: f.processingTime || null,
+                        taskId: f.taskId || null,  // 同步任务ID
+                        progress: f.progress || 0,  // 同步进度
+                        message: f.message || '',   // 同步消息
+                        errorMessage: f.errorMessage || null  // 同步错误信息
                         }))
                     };
                     await fetch('/api/file_list', {
@@ -303,7 +320,11 @@
                         status: file.status || 'pending',
                         startTime: file.startTime || null,
                         endTime: file.endTime || null,
-                        processingTime: file.processingTime || null
+                        processingTime: file.processingTime || null,
+                        taskId: file.taskId || null,  // 保存任务ID
+                        progress: file.progress || 0,  // 保存进度
+                        message: file.message || '',   // 保存消息
+                        errorMessage: file.errorMessage || null  // 保存错误信息
                     })),
                     results: Array.from(this.results.entries())
                 };
@@ -328,6 +349,18 @@
                         // 如果有文件，显示第一个文件的预览
                         if (this.uploadedFiles.length > 0) {
                             this.showFirstFilePreview();
+                        }
+                        
+                        // 如果有文件且有任务ID，检查是否需要启动全局状态轮询
+                        const hasTasks = this.uploadedFiles.some(f => f.taskId);
+                        if (hasTasks && !this.globalPollingInterval) {
+                            // 检查是否有活跃任务（非完成状态）
+                            const hasActiveTasks = this.uploadedFiles.some(f => 
+                                f.taskId && f.status && f.status !== 'completed' && f.status !== 'failed'
+                            );
+                            if (hasActiveTasks) {
+                                this.startGlobalStatusPolling();
+                            }
                         }
                     }
                 } catch (error) {
@@ -487,20 +520,11 @@
                 
                 const fileIcon = this.getFileIcon(fileData.name);
                 const statusBadge = this.getStatusBadge(fileData.status);
-                const progressBar = this.getProgressBar(fileData.status);
+                const progressBar = this.getProgressBar(fileData);
                 const actions = this.getFileActions(fileData, index);
                 
-                // 构建简化的时间信息
-                let timeInfo = '';
-                if (fileData.status === 'processing' && fileData.startTime) {
-                    timeInfo = `开始: ${fileData.startTime} | 状态: 处理中`;
-                } else if (fileData.status === 'completed') {
-                    timeInfo = `开始: ${fileData.startTime || '未知'} | 结束: ${fileData.endTime || '未知'} | 耗时: ${fileData.processingTime || '未知'}`;
-                } else if (fileData.status === 'error') {
-                    timeInfo = `开始: ${fileData.startTime || '未知'} | 失败: ${fileData.endTime || '未知'} | 耗时: ${fileData.processingTime || '未知'}`;
-                } else {
-                    timeInfo = '状态: 待处理';
-                }
+                // 构建详细的时间信息
+                const timeInfo = this.getTimeInfo(fileData);
                 
                 const detailInfo = `
                     <div class="file-detail">
@@ -524,11 +548,7 @@
                     </div>
                     <div class="file-card-footer">
                         <span class="file-size">${this.formatFileSize(fileData.size)}</span>
-                        <div class="footer-actions">
-                            ${fileData.status === 'completed' && this.results.has(fileData.name) 
-                                ? `<button class="btn-card btn-download" onclick="app.downloadResult('${fileData.name}')">📥 下载</button>`
-                                : `<button class="btn-card btn-download" disabled>📥 下载</button>`
-                            }
+                        <div class="file-actions">
                             ${actions}
                         </div>
                     </div>
@@ -557,6 +577,7 @@
             getStatusBadge(status) {
                 const statusMap = {
                     'pending': '⏳ 待处理',
+                    'queued': '📋 队列中',
                     'processing': '⚙️ 处理中',
                     'completed': '✅ 成功',
                     'error': '❌ 失败'
@@ -564,37 +585,54 @@
                 return statusMap[status] || '❓ 未知';
             }
 
-            getProgressBar(status) {
-                if (status === 'processing') {
+            getProgressBar(fileData) {
+                const progress = fileData.progress || 0;
+                const status = fileData.status;
+                
+                if (status === 'processing' || status === 'pending' || status === 'queued') {
+                    const progressColor = status === 'queued' ? '#ffc107' : '#007bff';
                     return `
                         <div class="progress-bar">
-                            <div class="progress-fill" style="width: 60%; animation: pulse 2s infinite;"></div>
+                            <div class="progress-fill" style="width: ${progress}%; background: ${progressColor};"></div>
+                            <span class="progress-text">${progress}%</span>
                         </div>
+                        <div class="progress-message">${fileData.message || '处理中...'}</div>
                     `;
                 } else if (status === 'completed') {
                     return `
                         <div class="progress-bar">
-                            <div class="progress-fill" style="width: 100%;"></div>
+                            <div class="progress-fill" style="width: 100%; background: #28a745;"></div>
+                            <span class="progress-text">100%</span>
                         </div>
+                        <div class="progress-message">✅ 处理完成</div>
                     `;
                 } else if (status === 'error') {
                     return `
                         <div class="progress-bar">
                             <div class="progress-fill" style="width: 100%; background: #dc3545;"></div>
+                            <span class="progress-text">错误</span>
                         </div>
+                        <div class="progress-message">❌ ${fileData.errorMessage || '处理失败'}</div>
                     `;
                 }
                 return '';
             }
 
             getFileActions(fileData, index) {
-                const viewBtn = fileData.status === 'completed' && this.results.has(fileData.name)
+                // 查看按钮：任务完成时可用
+                const viewBtn = fileData.status === 'completed'
                     ? `<button class="btn-card btn-view" onclick="app.viewResult('${fileData.name}')">👁️ 查看</button>`
                     : `<button class="btn-card btn-view" disabled>👁️ 查看</button>`;
                 
+                // 下载按钮：任务完成时可用
+                const downloadBtn = fileData.status === 'completed'
+                    ? `<button class="btn-card btn-download" onclick="app.downloadResult('${fileData.name}')">📥 下载</button>`
+                    : `<button class="btn-card btn-download" disabled>📥 下载</button>`;
+                
+                // 删除按钮：始终可用
                 const deleteBtn = `<button class="btn-card btn-delete" onclick="app.removeFile(${index})">🗑️ 删除</button>`;
                 
-                return viewBtn + deleteBtn;
+                return viewBtn + downloadBtn + deleteBtn;
             }
 
             formatTime(date) {
@@ -611,27 +649,68 @@
                 return '刚刚';
             }
             
+            formatTimeShort(dateStr) {
+                if (!dateStr) return '';
+                const date = new Date(dateStr);
+                const now = new Date();
+                const diff = now - date;
+                const minutes = Math.floor(diff / 60000);
+                const hours = Math.floor(diff / 3600000);
+                const days = Math.floor(diff / 86400000);
+                
+                if (days > 0) return `${days}d`;
+                if (hours > 0) return `${hours}h`;
+                if (minutes > 0) return `${minutes}m`;
+                return '刚刚';
+            }
+            
+            formatTimeDetail(dateStr) {
+                if (!dateStr) return '';
+                const date = new Date(dateStr);
+                const hours = date.getHours().toString().padStart(2, '0');
+                const minutes = date.getMinutes().toString().padStart(2, '0');
+                const month = (date.getMonth() + 1).toString().padStart(2, '0');
+                const day = date.getDate().toString().padStart(2, '0');
+                return `${month}-${day} ${hours}:${minutes}`;
+            }
+            
             getTimeInfo(fileData) {
                 switch (fileData.status) {
                     case 'pending':
                         return `📤 待处理`;
+                    case 'queued':
+                        const startTime = fileData.startTime || fileData.upload_time;
+                        return `📋 队列中 | 开始: ${startTime ? this.formatTimeDetail(startTime) : '未知'}`;
                     case 'processing':
-                        if (fileData.startTime) {
-                            return `⚙️ 处理中 (开始: ${fileData.startTime})`;
-                        }
-                        return '⚙️ 处理中';
+                        const procStartTime = fileData.startTime || fileData.upload_time;
+                        return `⚙️ 处理中 | 开始: ${procStartTime ? this.formatTimeDetail(procStartTime) : '未知'}`;
                     case 'completed':
-                        if (fileData.processingTime) {
-                            return `✅ 完成 (耗时: ${fileData.processingTime})`;
-                        }
-                        return '✅ 完成';
+                        const compStartTime = fileData.startTime || fileData.upload_time;
+                        const compEndTime = fileData.endTime;
+                        const duration = this.getProcessingDuration(fileData);
+                        return `✅ 完成 | 开始: ${compStartTime ? this.formatTimeDetail(compStartTime) : '未知'} | 耗时: ${duration}`;
                     case 'error':
-                        if (fileData.processingTime) {
-                            return `❌ 失败 (耗时: ${fileData.processingTime})`;
-                        }
-                        return '❌ 失败';
+                        const errStartTime = fileData.startTime || fileData.upload_time;
+                        const errEndTime = fileData.endTime;
+                        const errDuration = this.getProcessingDuration(fileData);
+                        return `❌ 失败 | 开始: ${errStartTime ? this.formatTimeDetail(errStartTime) : '未知'} | 耗时: ${errDuration}`;
                     default:
-                        return '📤 待处理';
+                        return `❓ 未知状态`;
+                }
+            }
+            
+            getProcessingDuration(fileData) {
+                if (!fileData.startTime || !fileData.endTime) return '未知';
+                const start = new Date(fileData.startTime);
+                const end = new Date(fileData.endTime);
+                const diff = end - start;
+                const minutes = Math.floor(diff / 60000);
+                const seconds = Math.floor((diff % 60000) / 1000);
+                
+                if (minutes > 0) {
+                    return `${minutes}分${seconds}秒`;
+                } else {
+                    return `${seconds}秒`;
                 }
             }
             
@@ -704,55 +783,279 @@
                 this.isProcessing = true;
                 const convertBtn = document.getElementById('convertBtn');
                 convertBtn.disabled = true;
-                convertBtn.innerHTML = '<span class="icon">⏳</span><span class="btn-text">转换中</span>';
+                convertBtn.innerHTML = '<span class="icon">⏳</span><span class="btn-text">启动后台处理</span>';
 
                 try {
-                    // 逐一处理文件
-                    for (let i = 0; i < this.uploadedFiles.length; i++) {
-                        const fileData = this.uploadedFiles[i];
+                    // 上传文件并自动加入队列
+                    const taskIds = await this.uploadFilesWithProgress();
+                    
+                    if (taskIds && taskIds.length > 0) {
+                        // 启动队列
+                        await this.startQueue();
                         
-                        // 只处理待处理的文件
-                        if (fileData.status === 'pending') {
-                            this.currentProcessingIndex = i;
-                            
-                            // 更新状态为处理中
-                            fileData.status = 'processing';
-                            fileData.startTime = this.getBeijingTime();
-                            this.updateFileList();
-                            this.saveToStorage();
-                            this.syncFileListToServer();
-                            
-                            // 显示当前处理文件的预览
-                            this.showProcessingPreview(fileData);
-                            
-                            // 处理文件
-                            await this.processFile(fileData);
-                            
-                            // 更新状态为完成
-                            fileData.status = 'completed';
-                            fileData.endTime = this.getBeijingTime();
-                            fileData.processingTime = this.calculateProcessingTime(fileData.startTime, fileData.endTime);
-                            this.updateFileList();
-                            this.saveToStorage();
-                            this.syncFileListToServer();
-                            
-                            // 显示完成预览
-                            this.showCompletedPreview(fileData);
-                        }
+                        // 显示后台处理通知
+                        this.showBackgroundProcessingNotice();
+                        
+                        // 开始全局轮询文件状态
+                        this.startGlobalStatusPolling();
+                        
+                        alert('文件已上传并加入队列！您可以关闭浏览器，任务将在后台继续运行。');
                     }
                     
-                    // 所有文件处理完成
-                    alert('所有文件转换完成！您可以关闭浏览器，转换结果已保存。');
-                    
                 } catch (error) {
-                    console.error('转换过程中出现错误:', error);
-                    alert('转换过程中出现错误: ' + error.message);
+                    console.error('启动后台处理时出现错误:', error);
+                    alert('启动后台处理失败: ' + error.message);
                 } finally {
                     this.isProcessing = false;
-                    this.currentProcessingIndex = -1;
                     convertBtn.disabled = false;
                     convertBtn.innerHTML = '<span class="icon">🚀</span><span class="btn-text">开始转换</span>';
                 }
+            }
+
+            async uploadFilesWithProgress() {
+                const taskIds = [];
+                
+                for (const fileData of this.uploadedFiles) {
+                        if (fileData.status === 'pending') {
+                        const formData = new FormData();
+                        formData.append('files', fileData.file);
+                        
+                        try {
+                            const response = await fetch('/api/upload_with_progress', {
+                                method: 'POST',
+                                body: formData
+                            });
+                            
+                            if (response.ok) {
+                                const result = await response.json();
+                                taskIds.push(...result.task_ids);
+                                
+                                // 更新文件状态，关联任务ID
+                                fileData.status = 'pending';  // 先设置为pending状态
+                                fileData.taskId = result.task_ids[0];
+                                fileData.progress = 10;
+                                fileData.message = "文件上传完成";
+                                
+                                // 如果队列状态是running，显示后台处理通知
+                                if (result.queue_status === 'running') {
+                                    this.showBackgroundProcessingNotice();
+                                    // 确保全局轮询正在运行
+                                    if (!this.globalPollingInterval) {
+                                        this.startGlobalStatusPolling();
+                                    }
+                                }
+                            } else {
+                                throw new Error(`上传失败: ${response.statusText}`);
+                            }
+                        } catch (error) {
+                            console.error(`上传文件 ${fileData.name} 失败:`, error);
+                            fileData.status = 'error';
+                        }
+                    }
+                }
+                
+                return taskIds;
+            }
+
+            async startQueue() {
+                const response = await fetch('/api/queue/start', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`启动队列失败: ${response.statusText}`);
+                }
+                
+                return await response.json();
+            }
+
+            async stopQueue() {
+                const response = await fetch('/api/queue/stop', {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`停止队列失败: ${response.statusText}`);
+                }
+                
+                return await response.json();
+            }
+
+            async getQueueStatus() {
+                const response = await fetch('/api/queue/status');
+                
+                if (!response.ok) {
+                    throw new Error(`获取队列状态失败: ${response.statusText}`);
+                }
+                
+                return await response.json();
+            }
+
+            showBackgroundProcessingNotice() {
+                const notice = document.getElementById('backgroundNotice');
+                notice.style.display = 'block';
+            }
+
+            startFileStatusPolling(taskIds) {
+                this.filePollingInterval = setInterval(async () => {
+                    try {
+                        const allCompleted = await this.updateFileStatuses(taskIds);
+                        if (allCompleted) {
+                            clearInterval(this.filePollingInterval);
+                            this.showFileCompletionMessage();
+                        }
+                    } catch (error) {
+                        console.error('轮询文件状态失败:', error);
+                    }
+                }, 2000); // 每2秒轮询一次
+            }
+            
+            startGlobalStatusPolling() {
+                if (this.globalPollingInterval) {
+                    clearInterval(this.globalPollingInterval);
+                }
+                
+                this.globalPollingInterval = setInterval(async () => {
+                    try {
+                        await this.updateAllFileStatuses();
+                    } catch (error) {
+                        console.error('轮询所有文件状态失败:', error);
+                    }
+                }, 2000); // 每2秒轮询一次
+            }
+
+            async updateFileStatuses(taskIds) {
+                let allCompleted = true;
+                
+                for (const taskId of taskIds) {
+                    try {
+                        const response = await fetch(`/api/task/${taskId}`);
+                        if (response.ok) {
+                            const task = await response.json();
+                            
+                            // 根据任务ID找到对应的文件并更新状态
+                            const fileData = this.uploadedFiles.find(f => f.taskId === taskId);
+                            if (fileData) {
+                                this.updateFileDataFromTask(fileData, task);
+                                
+                                if (task.status !== 'completed' && task.status !== 'failed') {
+                                    allCompleted = false;
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`获取任务 ${taskId} 状态失败:`, error);
+                    }
+                }
+                
+                // 更新文件列表显示
+                            this.updateFileList();
+                            this.saveToStorage();
+                            this.syncFileListToServer();
+                            
+                return allCompleted;
+            }
+            
+            async updateAllFileStatuses() {
+                try {
+                    // 获取所有任务状态
+                    const response = await fetch('/api/tasks');
+                    if (response.ok) {
+                        const allTasks = await response.json();
+                        
+                        // 更新所有有任务ID的文件
+                        let hasActiveTasks = false;
+                        for (const fileData of this.uploadedFiles) {
+                            if (fileData.taskId) {
+                                const task = allTasks.find(t => t.task_id === fileData.taskId);
+                                if (task) {
+                                    this.updateFileDataFromTask(fileData, task);
+                                    
+                                    // 检查是否有活跃任务（非完成状态）
+                                    if (task.status !== 'completed' && task.status !== 'failed') {
+                                        hasActiveTasks = true;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 更新文件列表显示
+                        this.updateFileList();
+                        this.saveToStorage();
+                        this.syncFileListToServer();
+                        
+                        // 如果所有任务都已完成，停止轮询
+                        if (!hasActiveTasks && this.globalPollingInterval) {
+                            console.log('所有任务已完成，停止状态轮询');
+                            clearInterval(this.globalPollingInterval);
+                            this.globalPollingInterval = null;
+                            
+                            // 隐藏后台处理通知
+                            const notice = document.getElementById('backgroundNotice');
+                            if (notice) {
+                                notice.style.display = 'none';
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('更新所有文件状态失败:', error);
+                }
+            }
+
+            updateFileDataFromTask(fileData, task) {
+                // 更新文件数据
+                fileData.progress = task.progress || 0;
+                fileData.message = task.message || '';
+                
+                // 更新时间信息
+                if (task.start_time) {
+                    fileData.startTime = task.start_time;
+                }
+                if (task.end_time) {
+                    fileData.endTime = task.end_time;
+                }
+                if (task.upload_time) {
+                    fileData.upload_time = task.upload_time;
+                }
+                
+                // 映射任务状态到文件状态
+                switch (task.status) {
+                    case 'pending':
+                        fileData.status = 'pending';
+                        break;
+                    case 'queued':
+                        fileData.status = 'queued';
+                        break;
+                    case 'processing':
+                        fileData.status = 'processing';
+                        break;
+                    case 'completed':
+                        fileData.status = 'completed';
+                        // 保存结果信息，确保查看和下载按钮可用
+                        this.results.set(fileData.name, {
+                            mdContent: '',
+                            txtContent: '',
+                            zipPath: '',
+                            pdfPath: '',
+                            filename: fileData.name.replace(/\.[^/.]+$/, '.md'),
+                            originalName: fileData.name,
+                            type: 'completed'
+                        });
+                        break;
+                    case 'failed':
+                        fileData.status = 'error';
+                        fileData.errorMessage = task.error_message || '处理失败';
+                        break;
+                }
+            }
+
+            showFileCompletionMessage() {
+                const notice = document.getElementById('backgroundNotice');
+                const noticeContent = notice.querySelector('.notice-content');
+                noticeContent.innerHTML = `
+                    <h4>✅ 所有文件处理完成</h4>
+                    <p>所有后台处理任务已完成，您可以下载结果文件。</p>
+                `;
             }
 
             async processFile(fileData) {
@@ -1012,8 +1315,28 @@
             
 
             async viewResult(filename) {
-                // 直接调用showMarkdownResult，它会从后端API获取最新的Markdown内容
-                await this.showMarkdownResult(filename);
+                // 从文件列表中找到对应的任务ID
+                const fileData = this.uploadedFiles.find(f => f.name === filename);
+                if (!fileData || !fileData.taskId) {
+                    alert('找不到对应的任务信息');
+                    return;
+                }
+                
+                try {
+                    // 从后端API获取Markdown内容
+                    const response = await fetch(`/api/task/${fileData.taskId}/markdown`);
+                    if (response.ok) {
+                        const result = await response.json();
+                        // 显示Markdown内容
+                        await this.showMarkdownResult(filename, result.md_content, result.txt_content);
+                    } else {
+                        const error = await response.json();
+                        alert(`获取Markdown内容失败: ${error.error}`);
+                    }
+                } catch (error) {
+                    console.error('获取Markdown内容失败:', error);
+                    alert('获取Markdown内容失败，请稍后重试');
+                }
             }
 
             showProcessingPreview(fileData) {
@@ -1119,7 +1442,7 @@
                 }
             }
 
-            clearAll() {
+            async clearAll() {
                 if (this.isProcessing) {
                     alert('转换进行中，无法清空文件列表');
                     return;
@@ -1129,6 +1452,28 @@
                     return;
                 }
                 
+                try {
+                    // 调用后端API清空所有任务
+                    const response = await fetch('/api/clear_all', {
+                        method: 'POST'
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        console.log('清空成功:', result.message);
+                    } else {
+                        const error = await response.json();
+                        console.error('清空失败:', error.error);
+                        alert('清空失败: ' + error.error);
+                        return;
+                    }
+                } catch (error) {
+                    console.error('清空请求失败:', error);
+                    alert('清空请求失败，请稍后重试');
+                    return;
+                }
+                
+                // 清空前端数据
                 this.uploadedFiles = [];
                 this.processingFiles.clear();
                 this.results.clear();
@@ -1140,9 +1485,14 @@
                     }
                 });
                 
+                // 停止全局轮询
+                if (this.globalPollingInterval) {
+                    clearInterval(this.globalPollingInterval);
+                    this.globalPollingInterval = null;
+                }
+                
                 this.updateFileList();
                 this.saveToStorage();
-                this.syncFileListToServer();
                 
                 // 清空预览
                 const defaultContent = `# 📄 MinerU PDF转换工具
@@ -1544,6 +1894,9 @@
 
         // 初始化应用
         const app = new MinerUApp();
+        
+        // 注意：全局轮询会在需要时自动启动（有活跃任务时）
+        // 不需要在这里无条件启动
     </script>
 </body>
 </html>
