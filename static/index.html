@@ -115,7 +115,7 @@
                 <!-- 统一文件状态卡片区域 -->
                 <div class="file-status-cards" id="fileStatusCards">
                     <div class="cards-header">
-                        <h3>📁 文件列表</h3>
+                        <h3>📁 文件列表 <span id="fileCount" style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:12px;background:#eef3ff;color:#2c3e50;font-weight:600;font-size:12px;vertical-align:middle;">0</span></h3>
                         <div class="cards-actions">
                             <button class="btn-convert" id="convertBtn" title="开始转换">
                                 <span class="icon">🚀</span>
@@ -502,6 +502,7 @@
             updateFileStatusCards() {
                 const fileStatusCards = document.getElementById('fileStatusCards');
                 const cardsContainer = document.getElementById('cardsContainer');
+                const fileCountBadge = document.getElementById('fileCount');
                 
                 // 文件状态区域始终显示
                     fileStatusCards.style.display = 'block';
@@ -516,6 +517,11 @@
                         cardsContainer.appendChild(fileCard);
                     });
 
+                    // 统计数量：已上传 + 结果（去重）
+                    const names = new Set(this.uploadedFiles.map(f => f.name));
+                    for (const k of this.results.keys()) names.add(k);
+                    if (fileCountBadge) fileCountBadge.textContent = String(names.size);
+
                 } else {
                     // 显示空状态
                     cardsContainer.innerHTML = `
@@ -525,6 +531,7 @@
                             <p style="font-size: 14px; color: #999;">上传文件后将显示在这里</p>
                         </div>
                     `;
+                    if (fileCountBadge) fileCountBadge.textContent = '0';
                 }
             }
 
