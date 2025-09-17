@@ -698,40 +698,46 @@ async def download_all():
                 content={"error": "输出目录不存在"}
             )
         
-        # 获取所有目录
-        directories = []
+        # 仅收集包含至少一个 .md 文件的目录（视为处理成功）
+        candidate_dirs = []
         for item in os.listdir(output_dir):
             item_path = os.path.join(output_dir, item)
-            if os.path.isdir(item_path):
-                directories.append(item)
-        
-        if not directories:
+            if not os.path.isdir(item_path):
+                continue
+            has_md = False
+            for root, _, files in os.walk(item_path):
+                if any(f.lower().endswith('.md') for f in files):
+                    has_md = True
+                    break
+            if has_md:
+                candidate_dirs.append(item)
+
+        if not candidate_dirs:
             return JSONResponse(
                 status_code=404,
                 content={"error": "没有可下载的目录"}
             )
         
-        # 创建临时ZIP文件，文件名包含时间戳
+        # 归档名：all_results_{时间戳}.zip
         timestamp = time.strftime("%y%m%d_%H%M%S")
         zip_filename = f"all_results_{timestamp}.zip"
         zip_path = os.path.join(output_dir, zip_filename)
         
-        # 创建ZIP文件
+        # 创建ZIP，保持完整相对路径（相对 output 根）
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for directory in directories:
+            for directory in candidate_dirs:
                 dir_path = os.path.join(output_dir, directory)
-                for root, dirs, files in os.walk(dir_path):
+                for root, _, files in os.walk(dir_path):
                     for file in files:
                         file_path_full = os.path.join(root, file)
                         arcname = os.path.relpath(file_path_full, output_dir)
                         zipf.write(file_path_full, arcname)
         
-        # 返回ZIP文件
         return FileResponse(
             path=zip_path,
             filename=zip_filename,
             media_type="application/zip",
-            background=BackgroundTask(lambda: os.remove(zip_path))  # 下载后删除临时ZIP文件
+            background=BackgroundTask(lambda: os.remove(zip_path))
         )
         
     except Exception as e:
@@ -740,6 +746,71 @@ async def download_all():
             status_code=500,
             content={"error": f"下载所有文件失败: {str(e)}"}
         )
+
+@app.post("/download_all")
+async def download_all_selected(request: dict):
+    """按本次任务提供的文件列表打包下载（仅成功目录）。
+    请求体示例: {"files": ["a.pdf", "b.pdf"]}
+    """
+    try:
+        output_dir = "./output"
+        if not os.path.exists(output_dir):
+            return JSONResponse(status_code=404, content={"error": "输出目录不存在"})
+
+        file_names = request.get("files", []) or []
+        if not isinstance(file_names, list) or not file_names:
+            return JSONResponse(status_code=400, content={"error": "缺少待打包文件列表"})
+
+        # 针对每个文件名，选择该文件最新的成功目录（存在 .md）
+        selected_dirs = []
+        all_dirs = [d for d in os.listdir(output_dir) if os.path.isdir(os.path.join(output_dir, d))]
+
+        for name in file_names:
+            stem = Path(name).stem
+            normalized = stem.replace('-', '_')
+            # 找出包含该stem的所有 temp_ 目录
+            candidates = [d for d in all_dirs if normalized in d]
+            candidates.sort(reverse=True)
+            chosen = None
+            for d in candidates:
+                dir_path = os.path.join(output_dir, d)
+                has_md = False
+                for root, _, files in os.walk(dir_path):
+                    if any(f.lower().endswith('.md') for f in files):
+                        has_md = True
+                        break
+                if has_md:
+                    chosen = d
+                    break
+            if chosen:
+                selected_dirs.append(chosen)
+
+        if not selected_dirs:
+            return JSONResponse(status_code=404, content={"error": "没有可下载的目录"})
+
+        timestamp = time.strftime("%y%m%d_%H%M%S")
+        zip_filename = f"all_results_{timestamp}.zip"
+        zip_path = os.path.join(output_dir, zip_filename)
+
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for directory in selected_dirs:
+                dir_path = os.path.join(output_dir, directory)
+                for root, _, files in os.walk(dir_path):
+                    for file in files:
+                        file_path_full = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path_full, output_dir)
+                        zipf.write(file_path_full, arcname)
+
+        return FileResponse(
+            path=zip_path,
+            filename=zip_filename,
+            media_type="application/zip",
+            background=BackgroundTask(lambda: os.remove(zip_path))
+        )
+
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(status_code=500, content={"error": f"下载所有文件失败: {str(e)}"})
 
 @click.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
 @click.pass_context

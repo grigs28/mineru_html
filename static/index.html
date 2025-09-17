@@ -882,9 +882,36 @@
                 }
             }
 
-            downloadAllResults() {
-                // 调用后端API下载所有文件（ZIP打包）
-                window.open('/download_all', '_blank');
+            async downloadAllResults() {
+                // 收集本次任务中“已完成”的文件名
+                const completed = this.uploadedFiles
+                    .filter(f => f.status === 'completed')
+                    .map(f => f.name);
+                if (completed.length === 0) {
+                    alert('暂无已完成的文件可打包');
+                    return;
+                }
+                try {
+                    const res = await fetch('/download_all', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ files: completed })
+                    });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    const ts = this.getCurrentTimestamp();
+                    a.href = url;
+                    a.download = `all_results_${ts}.zip`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } catch (e) {
+                    console.error('全部下载失败:', e);
+                    alert('全部下载失败，请稍后重试');
+                }
             }
             
 
