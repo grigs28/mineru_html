@@ -186,6 +186,7 @@
                                 <button class="btn-refresh" id="refreshExamples">🔄 刷新</button>
                                 <button class="btn-select-all" id="selectAllExamples">☑️ 全选</button>
                                 <button class="btn-delete-selected" id="deleteSelected">🗑️ 删除</button>
+                                <button class="btn-download-all" id="downloadAllOutputs" title="打包下载全部输出" onclick="app.downloadAllOutputs()">📦 打包下载</button>
                             </div>
                         </div>
                         <div class="examples-list" id="examplesList">
@@ -1741,6 +1742,26 @@
                     console.error('加载输出文件失败:', error);
                     document.getElementById('examplesList').innerHTML = 
                         '<p style="text-align: center; color: #f44336; padding: 20px;">加载失败</p>';
+                }
+            }
+
+            async downloadAllOutputs() {
+                try {
+                    const res = await fetch('/download_all');
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    const ts = this.getCurrentTimestamp();
+                    a.href = url;
+                    a.download = `all_outputs_${ts}.zip`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                } catch (e) {
+                    console.error('打包全部输出失败:', e);
+                    alert('打包全部输出失败，请稍后重试');
                 }
             }
 
