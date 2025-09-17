@@ -244,20 +244,25 @@
                     if (!res.ok) return;
                     const serverFiles = await res.json();
                     if (Array.isArray(serverFiles)) {
-                        // 以服务端为主，替换上传列表（仅状态/元信息，File对象为空）
+                        // 正常化状态并以服务端为主替换（仅状态/元信息，File对象为空）
+                        const normalizeStatus = (s) => {
+                            if (!s) return 'pending';
+                            const map = { failed: 'error', error: 'error', queued: 'queued', pending: 'pending', processing: 'processing', completed: 'completed' };
+                            return map[s] || 'pending';
+                        };
                         const merged = serverFiles.map(f => ({
                             file: null,
                             name: f.name,
                             size: f.size || 0,
-                            status: f.status || 'completed',
+                            status: normalizeStatus(f.status),
                             uploadTime: f.uploadTime || null,
                             startTime: f.startTime || null,
                             endTime: f.endTime || null,
                             processingTime: f.processingTime || null,
-                            taskId: f.taskId || null,  // 保持任务ID信息
-                            progress: f.progress || 0,  // 保持进度信息
-                            message: f.message || '',   // 保持消息信息
-                            errorMessage: f.errorMessage || null  // 保持错误信息
+                            taskId: f.taskId || null,
+                            progress: Number.isFinite(f.progress) ? f.progress : 0,
+                            message: f.message || '',
+                            errorMessage: f.errorMessage || null
                         }));
                         this.uploadedFiles = merged;
                         this.updateFileList();
