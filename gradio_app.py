@@ -1219,6 +1219,16 @@ async def download_all_selected(request: dict):
         if not isinstance(file_names, list) or not file_names:
             return JSONResponse(status_code=400, content={"error": "缺少待打包文件列表"})
 
+        # 对照 config/file_list.json，仅保留已完成的文件名
+        try:
+            server_list = load_server_file_list()
+            completed_set = {f.get("name") for f in server_list if str(f.get("status")).lower() in {"completed", "success"}}
+            if completed_set:
+                file_names = [n for n in file_names if n in completed_set]
+        except Exception as _:
+            # 读取失败则忽略此过滤，按原逻辑处理
+            pass
+
         # 针对每个文件名，选择该文件最新的成功目录（存在 .md）
         selected_dirs = []
         all_dirs = [d for d in os.listdir(output_dir) if os.path.isdir(os.path.join(output_dir, d))]
