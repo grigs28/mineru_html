@@ -181,7 +181,7 @@
                 <div class="tab-content" id="examplesTab">
                     <div class="examples-section">
                         <div class="examples-header">
-                            <h3>输出目录文件</h3>
+                            <h3>输出目录文件 <span id="examplesCount" style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:12px;background:#eef3ff;color:#2c3e50;font-weight:600;font-size:12px;vertical-align:middle;">0</span></h3>
                             <div class="examples-actions">
                                 <button class="btn-refresh" id="refreshExamples">🔄 刷新</button>
                                 <button class="btn-select-all" id="selectAllExamples">☑️ 全选</button>
@@ -1721,8 +1721,10 @@
                     const files = await response.json();
                     
                     const examplesList = document.getElementById('examplesList');
+                    const examplesCount = document.getElementById('examplesCount');
                     examplesList.innerHTML = '';
 
+                    if (examplesCount) examplesCount.textContent = String(Array.isArray(files) ? files.length : 0);
                     if (files.length === 0) {
                         examplesList.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">输出目录为空</p>';
                         return;
@@ -1742,6 +1744,8 @@
                     console.error('加载输出文件失败:', error);
                     document.getElementById('examplesList').innerHTML = 
                         '<p style="text-align: center; color: #f44336; padding: 20px;">加载失败</p>';
+                    const examplesCount = document.getElementById('examplesCount');
+                    if (examplesCount) examplesCount.textContent = '0';
                 }
             }
 
