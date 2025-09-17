@@ -1,5 +1,24 @@
 # 更新日志
 
+## [0.1.4] - 2025-09-17
+
+### ✨ 新增
+- 后端新增原始文件直出接口：`GET /output/raw/{filename:path}`，用于 iframe 内联预览 PDF
+- 后端新增查找接口：`GET /output/find_pdf?q=<keyword>`，在 `./output/**/vlm/` 中优先匹配 `*_origin.pdf`，否则回退任意 `.pdf`
+
+### 🔧 改进
+- 前端：刷新后无本地 Blob 时，自动调用 `/output/find_pdf` 找到可预览 PDF 并内联展示
+- 前端：构建预览 URL 改用 `encodeURI`，确保路径分隔符保留，中文正确编码
+- 后端：`/output/raw` 返回头改为 `Content-Disposition: inline`（不携带文件名），避免中文文件名导致 500
+- 前端：表单提交参数统一字符串化，避免 FastAPI 表单类型校验 422（`server_url` 为空时不传）
+- 前端：仅当对象为 `Blob/File` 时调用 `URL.createObjectURL`，修复刷新后 PDF 预览报错
+
+### 🐛 修复
+- 修复 `showFirstFilePreview` 误传对象导致 `createObjectURL` 重载失败
+- 修复刷新后 PDF 预览为空白的体验问题（增加友好提示与服务端回退预览）
+
+---
+
 ## [0.1.3] - 2025-09-17
 
 ### 🎯 功能

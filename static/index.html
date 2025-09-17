@@ -221,8 +221,75 @@
                 this.setupEventListeners();
                 this.updateSliderValue();
                 this.updateBackendOptions();
+                this.refreshVersion();
+                this.syncFileListFromServer();
                 this.loadExamples();
                 this.updateFileList();
+            }
+
+            async syncFileListFromServer() {
+                // 从服务端获取共享文件列表，与本地合并（服务端为主）
+                try {
+                    const res = await fetch('/api/file_list');
+                    if (!res.ok) return;
+                    const serverFiles = await res.json();
+                    if (Array.isArray(serverFiles)) {
+                        // 以服务端为主，替换上传列表（仅状态/元信息，File对象为空）
+                        const merged = serverFiles.map(f => ({
+                            file: null,
+                            name: f.name,
+                            size: f.size || 0,
+                            status: f.status || 'completed',
+                            uploadTime: f.uploadTime || null,
+                            startTime: f.startTime || null,
+                            endTime: f.endTime || null,
+                            processingTime: f.processingTime || null
+                        }));
+                        this.uploadedFiles = merged;
+                        this.updateFileList();
+                        this.saveToStorage();
+                    }
+                } catch (e) {
+                    console.warn('syncFileListFromServer failed', e);
+                }
+            }
+
+            async syncFileListToServer() {
+                // 将当前文件列表推送到服务端共享
+                try {
+                    const payload = {
+                        files: this.uploadedFiles.map(f => ({
+                            name: f.name,
+                            size: f.size || 0,
+                            status: f.status || 'pending',
+                            uploadTime: f.uploadTime || null,
+                            startTime: f.startTime || null,
+                            endTime: f.endTime || null,
+                            processingTime: f.processingTime || null
+                        }))
+                    };
+                    await fetch('/api/file_list', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                } catch (e) {
+                    console.warn('syncFileListToServer failed', e);
+                }
+            }
+
+            async refreshVersion() {
+                try {
+                    const res = await fetch('/api/version');
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    const el = document.querySelector('.version-text');
+                    if (el && data.version) {
+                        el.textContent = data.version;
+                    }
+                } catch (e) {
+                    console.warn('获取版本失败', e);
+                }
             }
 
             // 持久化存储方法
@@ -371,6 +438,7 @@
 
                 this.updateFileList();
                 this.saveToStorage();
+                this.syncFileListToServer();
                 
                 // 批量上传后显示第一个文件的预览
                 if (validFiles.length > 0) {
@@ -652,6 +720,7 @@
                             fileData.startTime = this.getBeijingTime();
                             this.updateFileList();
                             this.saveToStorage();
+                            this.syncFileListToServer();
                             
                             // 显示当前处理文件的预览
                             this.showProcessingPreview(fileData);
@@ -665,6 +734,7 @@
                             fileData.processingTime = this.calculateProcessingTime(fileData.startTime, fileData.endTime);
                             this.updateFileList();
                             this.saveToStorage();
+                            this.syncFileListToServer();
                             
                             // 显示完成预览
                             this.showCompletedPreview(fileData);
@@ -710,19 +780,27 @@
                     }
                     
                     const formData = new FormData();
+                    // files must be Blob/File
                     formData.append('files', fileToProcess);
+                    // Always send strings for non-file fields
                     formData.append('output_dir', './output');
-                    formData.append('lang_list', document.getElementById('language').value);
-                    formData.append('backend', document.getElementById('backend').value);
-                    formData.append('parse_method', document.getElementById('isOcr').checked ? 'ocr' : 'auto');
-                    formData.append('formula_enable', document.getElementById('formulaEnable').checked);
-                    formData.append('table_enable', document.getElementById('tableEnable').checked);
-                    formData.append('server_url', document.getElementById('serverUrl').value || null);
-                    formData.append('return_md', true);
-                    formData.append('return_images', true);
-                    formData.append('response_format_zip', false);
-                    formData.append('start_page_id', 0);
-                    formData.append('end_page_id', parseInt(document.getElementById('maxPages').value) - 1);
+                    const lang = (document.getElementById('language') && document.getElementById('language').value) || 'ch';
+                    formData.append('lang_list', String(lang));
+                    formData.append('backend', String(document.getElementById('backend').value));
+                    const isOcrEnabled = !!(document.getElementById('isOcr') && document.getElementById('isOcr').checked);
+                    formData.append('parse_method', isOcrEnabled ? 'ocr' : 'auto');
+                    formData.append('formula_enable', String(!!document.getElementById('formulaEnable').checked));
+                    formData.append('table_enable', String(!!document.getElementById('tableEnable').checked));
+                    const serverUrlVal = (document.getElementById('serverUrl') && document.getElementById('serverUrl').value) || '';
+                    if (serverUrlVal) {
+                        formData.append('server_url', String(serverUrlVal));
+                    }
+                    formData.append('return_md', String(true));
+                    formData.append('return_images', String(true));
+                    formData.append('response_format_zip', String(false));
+                    formData.append('start_page_id', String(0));
+                    const endPage = Math.max(0, parseInt(document.getElementById('maxPages').value, 10) - 1);
+                    formData.append('end_page_id', String(endPage));
 
                     const response = await fetch('/file_parse', {
                         method: 'POST',
@@ -852,8 +930,26 @@
                 // 如果是PDF文件，显示PDF预览
                 if (filename.toLowerCase().endsWith('.pdf')) {
                     const fileData = this.uploadedFiles.find(f => f.name === filename);
-                    if (fileData) {
+                    if (fileData && fileData.file instanceof Blob) {
                         this.showPdfPreview(fileData.file);
+                    } else {
+                        // 刷新后自动向后端查询匹配的PDF
+                        try {
+                            const resp = await fetch(`/output/find_pdf?q=${encodeURIComponent(filename)}`);
+                            if (resp.ok) {
+                                const data = await resp.json();
+                                if (data && data.path) {
+                                    // 使用 encodeURI 保留路径中的斜杠，仅对中文等字符编码
+                                    this.showPdfPreviewByUrl(`/output/raw/${encodeURI(data.path)}`);
+                                } else {
+                                    this.clearPdfPreview();
+                                }
+                            } else {
+                                this.clearPdfPreview();
+                            }
+                        } catch (_) {
+                            this.clearPdfPreview();
+                        }
                     }
                 } else {
                     // 清空PDF预览区域
@@ -1014,8 +1110,8 @@
                     document.getElementById('markdownText').textContent = filePreviewContent;
                     
                     // 如果是PDF文件，显示PDF预览
-                    if (firstFile.name.toLowerCase().endsWith('.pdf')) {
-                        this.showPdfPreview(firstFile);
+                    if (firstFile.name.toLowerCase().endsWith('.pdf') && firstFile.file instanceof Blob) {
+                        this.showPdfPreview(firstFile.file);
                     } else {
                         // 清空PDF预览区域
                         this.clearPdfPreview();
@@ -1046,6 +1142,7 @@
                 
                 this.updateFileList();
                 this.saveToStorage();
+                this.syncFileListToServer();
                 
                 // 清空预览
                 const defaultContent = `# 📄 MinerU PDF转换工具
@@ -1397,7 +1494,34 @@
                     return;
                 }
 
+                // 仅在提供的是Blob/File时预览
+                if (!(file instanceof Blob)) {
+                    // 刷新后本地无Blob时给出友好提示
+                    pdfPreviewContainer.innerHTML = `
+                        <div class="pdf-preview-placeholder">
+                            <div style="font-size: 48px; margin-bottom: 15px;">📄</div>
+                            <p>无法显示PDF预览</p>
+                            <p style="font-size: 14px; color: #999;">刷新后无法恢复文件数据，请重新上传 PDF 以查看预览</p>
+                        </div>
+                    `;
+                    return;
+                }
+
                 const url = URL.createObjectURL(file);
+                pdfPreviewContainer.innerHTML = `
+                    <iframe src="${url}" 
+                            class="pdf-preview-iframe"
+                            title="PDF预览">
+                    </iframe>
+                `;
+            }
+
+            showPdfPreviewByUrl(url) {
+                const pdfPreviewContainer = document.getElementById('pdfPreviewContainer');
+                if (!url) {
+                    this.clearPdfPreview();
+                    return;
+                }
                 pdfPreviewContainer.innerHTML = `
                     <iframe src="${url}" 
                             class="pdf-preview-iframe"

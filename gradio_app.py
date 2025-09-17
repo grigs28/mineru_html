@@ -66,6 +66,34 @@ if not os.path.exists(static_dir):
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
+# 服务器端文件列表存储
+FILE_LIST_PATH = os.path.join("./output", "file_list.json")
+
+def _ensure_output_dir():
+    os.makedirs("./output", exist_ok=True)
+
+def load_server_file_list() -> list:
+    _ensure_output_dir()
+    if os.path.exists(FILE_LIST_PATH):
+        try:
+            import json
+            with open(FILE_LIST_PATH, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+        except Exception as e:
+            logger.warning(f"读取文件列表失败: {e}")
+    return []
+
+def save_server_file_list(file_list: list) -> None:
+    _ensure_output_dir()
+    try:
+        import json
+        with open(FILE_LIST_PATH, 'w', encoding='utf-8') as f:
+            json.dump(file_list, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning(f"写入文件列表失败: {e}")
+
 def sanitize_filename(filename: str) -> str:
     """格式化压缩文件的文件名"""
     sanitized = re.sub(r'[/\\\.]{2,}|[/\\]', '', filename)
@@ -217,6 +245,46 @@ async def get_changelog():
             status_code=500,
             content={"error": f"读取CHANGELOG失败: {str(e)}"}
         )
+
+@app.get("/api/version")
+async def get_version():
+    """返回最新版本号，解析 CHANGELOG.md 第一条版本记录。"""
+    try:
+        changelog_path = os.path.join(os.path.dirname(__file__), "CHANGELOG.md")
+        if os.path.exists(changelog_path):
+            with open(changelog_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            # 查找形如: ## [0.1.3] - yyyy-mm-dd 的首个版本
+            m = re.search(r"^## \[(.*?)\]", content, flags=re.MULTILINE)
+            if m and m.group(1):
+                return JSONResponse(content={"version": f"v{m.group(1)}"})
+        # 兜底
+        return JSONResponse(content={"version": "v0.0.0"})
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(status_code=500, content={"error": f"读取版本失败: {str(e)}"})
+
+@app.get("/api/file_list")
+async def api_get_file_list():
+    """获取服务器端共享的文件列表（用于多PC共享）。"""
+    try:
+        return JSONResponse(content=load_server_file_list())
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(status_code=500, content={"error": f"获取文件列表失败: {str(e)}"})
+
+@app.post("/api/file_list")
+async def api_set_file_list(payload: dict):
+    """设置（覆盖）服务器端文件列表。payload: {"files": [...]}"""
+    try:
+        files = payload.get("files", [])
+        if not isinstance(files, list):
+            return JSONResponse(status_code=400, content={"error": "files必须是数组"})
+        save_server_file_list(files)
+        return JSONResponse(content={"ok": True})
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(status_code=500, content={"error": f"保存文件列表失败: {str(e)}"})
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
@@ -645,7 +713,7 @@ async def download_file(filename: str):
                 item_path = os.path.join(output_dir, item)
                 if os.path.isdir(item_path):
                     # 检查是否包含文件名的主要部分
-                    if (f"temp_{safe_filename_loose}_" in item or 
+                    if (f"temp_{safe_filename_loose}_" in item or
                         f"{safe_filename_loose}_" in item):
                         matching_dirs.append(item)
         
@@ -686,6 +754,28 @@ async def download_file(filename: str):
             status_code=500,
             content={"error": f"下载文件失败: {str(e)}"}
         )
+
+@app.get("/output/raw/{filename:path}")
+async def get_output_file(filename: str):
+    """直接从 ./output 目录安全地返回文件（用于PDF预览）。"""
+    try:
+        base_dir = os.path.abspath("./output")
+        # 仅允许访问 output 下文件，禁止路径穿越
+        requested_path = os.path.abspath(os.path.join(base_dir, filename))
+        if not requested_path.startswith(base_dir + os.sep) and requested_path != base_dir:
+            return JSONResponse(status_code=403, content={"error": "禁止的路径"})
+
+        if not os.path.exists(requested_path) or not os.path.isfile(requested_path):
+            return JSONResponse(status_code=404, content={"error": "文件不存在"})
+
+        # 简单的内容类型判断
+        media_type = "application/pdf" if requested_path.lower().endswith(".pdf") else "application/octet-stream"
+        # 强制内联显示，避免浏览器下载（不携带非ASCII文件名，避免编码问题导致500）
+        headers = {"Content-Disposition": "inline"}
+        return FileResponse(path=requested_path, media_type=media_type, headers=headers)
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(status_code=500, content={"error": f"读取文件失败: {str(e)}"})
 
 @app.get("/download_all")
 async def download_all():
@@ -811,6 +901,60 @@ async def download_all_selected(request: dict):
     except Exception as e:
         logger.exception(e)
         return JSONResponse(status_code=500, content={"error": f"下载所有文件失败: {str(e)}"})
+
+@app.get("/output/find_pdf")
+async def find_pdf(q: str):
+    """根据关键词（原始文件名或任务目录名）在 ./output 下寻找可预览的 PDF。
+    优先匹配包含关键词的目录下 vlm 子目录中的 *_origin.pdf，其次任意 .pdf。
+    返回相对 ./output 的路径，用于 /output/raw/{path} 访问。
+    """
+    try:
+        base_dir = os.path.abspath("./output")
+        if not os.path.exists(base_dir):
+            return JSONResponse(status_code=404, content={"error": "输出目录不存在"})
+
+        keyword = q or ""
+        # 同时尝试原始、safe_stem、连字符替换
+        candidates = list({
+            keyword,
+            safe_stem(keyword),
+            Path(keyword).stem,
+            safe_stem(Path(keyword).stem),
+            (Path(keyword).stem.replace('-', '_') if keyword else "")
+        } - {""})
+
+        hit_origin = None
+        hit_any = None
+
+        for root, dirs, files in os.walk(base_dir):
+            # 仅在 vlm 子目录里找
+            if os.path.basename(root) != "vlm":
+                continue
+            rel_dir = os.path.relpath(root, base_dir)
+            for file in files:
+                if not file.lower().endswith('.pdf'):
+                    continue
+                rel_path = os.path.join(rel_dir, file)
+                full_path_lower = rel_path.lower()
+                # 关键词匹配
+                if candidates and not any(c.lower() in full_path_lower for c in candidates):
+                    continue
+                if file.endswith("_origin.pdf") and hit_origin is None:
+                    hit_origin = rel_path
+                if hit_any is None:
+                    hit_any = rel_path
+            # 提前结束：找到优先文件
+            if hit_origin:
+                break
+
+        chosen = hit_origin or hit_any
+        if not chosen:
+            return JSONResponse(status_code=404, content={"error": "未找到匹配的PDF"})
+
+        return JSONResponse(content={"path": chosen})
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(status_code=500, content={"error": f"查找失败: {str(e)}"})
 
 @click.command(context_settings=dict(ignore_unknown_options=True, allow_extra_args=True))
 @click.pass_context
