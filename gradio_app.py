@@ -138,6 +138,38 @@ async def parse_pdf(doc_path, output_dir, end_page_id, is_ocr, formula_enable, t
         logger.exception(e)
         return None
 
+@app.get("/api/backend_options")
+async def get_backend_options():
+    """获取可用的后端选项"""
+    try:
+        sglang_engine_enable = getattr(app.state, 'sglang_engine_enable', False)
+        
+        if sglang_engine_enable:
+            backend_options = [
+                {"value": "pipeline", "label": "Pipeline"},
+                {"value": "vlm-sglang-engine", "label": "VLM SgLang Engine"}
+            ]
+            default_backend = "vlm-sglang-engine"
+        else:
+            backend_options = [
+                {"value": "pipeline", "label": "Pipeline"},
+                {"value": "vlm-transformers", "label": "VLM Transformers"},
+                {"value": "vlm-sglang-client", "label": "VLM SgLang Client"},
+                {"value": "vlm-sglang-engine", "label": "VLM SgLang Engine"}
+            ]
+            default_backend = "vlm-sglang-engine"
+        
+        return JSONResponse(content={
+            "backend_options": backend_options,
+            "default_backend": default_backend
+        })
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"获取后端选项失败: {str(e)}"}
+        )
+
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     """返回主页面"""
@@ -146,7 +178,7 @@ async def read_root():
         with open(html_path, "r", encoding="utf-8") as f:
             return HTMLResponse(content=f.read())
     else:
-        # 返回基本的HTML页面
+        # 返回错误页面
         return HTMLResponse(content="""
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -154,695 +186,10 @@ async def read_root():
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MinerU PDF转换工具</title>
-    <style>
-        * { box-sizing: border-box; }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-            margin: 0; 
-            padding: 20px; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-        }
-        .container { 
-            max-width: 1200px; 
-            margin: 0 auto; 
-            background: white; 
-            border-radius: 15px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            overflow: hidden;
-        }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-        .header h1 { margin: 0; font-size: 2.5em; font-weight: 300; }
-        .header p { margin: 10px 0 0 0; opacity: 0.9; }
-        
-        .main-content {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 30px;
-            padding: 30px;
-        }
-        
-        .upload-section {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 25px;
-        }
-        
-        .upload-area { 
-            border: 3px dashed #667eea; 
-            padding: 40px; 
-            text-align: center; 
-            border-radius: 10px;
-            background: white;
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-        .upload-area:hover {
-            border-color: #764ba2;
-            background: #f8f9ff;
-        }
-        .upload-area.dragover {
-            border-color: #28a745;
-            background: #f0fff4;
-        }
-        
-        .file-status-section {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 25px;
-        }
-        
-        .file-card {
-            background: white;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 10px 0;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            border-left: 4px solid #667eea;
-            transition: all 0.3s ease;
-        }
-        .file-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-        }
-        .file-card.converting {
-            border-left-color: #ffc107;
-            background: #fffbf0;
-        }
-        .file-card.completed {
-            border-left-color: #28a745;
-            background: #f0fff4;
-        }
-        .file-card.error {
-            border-left-color: #dc3545;
-            background: #fff5f5;
-        }
-        
-        .file-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        .file-name {
-            font-weight: 600;
-            color: #333;
-            flex: 1;
-            margin-right: 10px;
-        }
-        .file-actions {
-            display: flex;
-            gap: 5px;
-        }
-        
-        .btn { 
-            background: #667eea; 
-            color: white; 
-            padding: 8px 16px; 
-            border: none; 
-            border-radius: 6px; 
-            cursor: pointer; 
-            font-size: 14px;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-block;
-        }
-        .btn:hover { 
-            background: #5a6fd8; 
-            transform: translateY(-1px);
-        }
-        .btn:active {
-            transform: translateY(0);
-        }
-        .btn-danger {
-            background: #dc3545;
-        }
-        .btn-danger:hover {
-            background: #c82333;
-        }
-        .btn-success {
-            background: #28a745;
-        }
-        .btn-success:hover {
-            background: #218838;
-        }
-        .btn-warning {
-            background: #ffc107;
-            color: #333;
-        }
-        .btn-warning:hover {
-            background: #e0a800;
-        }
-        
-        .file-info {
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 10px;
-        }
-        
-        .file-preview {
-            margin-top: 10px;
-            padding: 10px;
-            background: #f8f9fa;
-            border-radius: 5px;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-        
-        .preview-content {
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            line-height: 1.4;
-            white-space: pre-wrap;
-        }
-        
-        .batch-actions {
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 1px solid #dee2e6;
-            text-align: center;
-        }
-        
-        .status-indicator {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-right: 8px;
-        }
-        .status-pending { background: #6c757d; }
-        .status-converting { background: #ffc107; animation: pulse 1.5s infinite; }
-        .status-completed { background: #28a745; }
-        .status-error { background: #dc3545; }
-        
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-        
-        .progress-bar {
-            width: 100%;
-            height: 4px;
-            background: #e9ecef;
-            border-radius: 2px;
-            overflow: hidden;
-            margin: 10px 0;
-        }
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
-            width: 0%;
-            transition: width 0.3s ease;
-        }
-        
-        .conversion-status {
-            background: #e3f2fd;
-            border: 1px solid #2196f3;
-            border-radius: 8px;
-            padding: 15px;
-            margin: 20px 0;
-            display: none;
-        }
-        .conversion-status.active {
-            display: block;
-        }
-        
-        .preview-section {
-            grid-column: 1 / -1;
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 25px;
-            margin-top: 20px;
-        }
-        
-        .preview-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-        
-        .preview-content-area {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            min-height: 300px;
-            border: 1px solid #dee2e6;
-        }
-        
-        .empty-state {
-            text-align: center;
-            color: #6c757d;
-            padding: 40px;
-        }
-        .empty-state i {
-            font-size: 48px;
-            margin-bottom: 15px;
-            opacity: 0.5;
-        }
-        
-        @media (max-width: 768px) {
-            .main-content {
-                grid-template-columns: 1fr;
-                gap: 20px;
-                padding: 20px;
-            }
-            .header h1 {
-                font-size: 2em;
-            }
-        }
-    </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>MinerU PDF转换工具</h1>
-            <p>智能文档转换，支持PDF、图片等多种格式</p>
-        </div>
-        
-        <div class="main-content">
-            <div class="upload-section">
-                <h3>文件上传</h3>
-                <div class="upload-area" id="uploadArea">
-                    <div style="font-size: 48px; margin-bottom: 15px;">📁</div>
-                    <p style="font-size: 18px; margin-bottom: 10px;">拖拽文件到此处或点击选择文件</p>
-                    <p style="color: #666; font-size: 14px;">支持 PDF、PNG、JPG、JPEG、BMP、TIFF 格式</p>
-                    <input type="file" id="fileInput" multiple accept=".pdf,.png,.jpg,.jpeg,.bmp,.tiff" style="display: none;">
-                </div>
-                
-                <div class="batch-actions">
-                    <button class="btn btn-success" onclick="startConversion()" id="convertBtn">
-                        🚀 开始转换
-                    </button>
-                    <button class="btn btn-warning" onclick="clearAllFiles()">
-                        🗑️ 清空所有
-                    </button>
-                    <button class="btn" onclick="downloadAllResults()" id="downloadAllBtn" style="display: none;">
-                        📥 一键下载
-                    </button>
-                </div>
-            </div>
-            
-            <div class="file-status-section">
-                <h3>文件状态</h3>
-                <div id="fileStatusList">
-                    <div class="empty-state">
-                        <div style="font-size: 48px; margin-bottom: 15px;">📋</div>
-                        <p>暂无文件</p>
-                        <p style="font-size: 14px; color: #999;">上传文件后将显示在这里</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="conversion-status" id="conversionStatus">
-            <div style="display: flex; align-items: center; margin-bottom: 10px;">
-                <span class="status-indicator status-converting"></span>
-                <strong>正在转换中...</strong>
-            </div>
-            <div class="progress-bar">
-                <div class="progress-fill" id="progressFill"></div>
-            </div>
-            <div id="conversionProgress">准备中...</div>
-        </div>
-        
-        <div class="preview-section">
-            <div class="preview-header">
-                <h3>文件预览</h3>
-                <div>
-                    <button class="btn" onclick="togglePreviewMode()" id="previewModeBtn">
-                        📄 预览模式
-                    </button>
-                </div>
-            </div>
-            <div class="preview-content-area" id="previewContent">
-                <div class="empty-state">
-                    <div style="font-size: 48px; margin-bottom: 15px;">👁️</div>
-                    <p>选择文件查看预览</p>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <script>
-        let uploadedFiles = [];
-        let fileStates = new Map(); // 存储文件状态
-        let currentPreviewMode = 'preview'; // 'preview' 或 'markdown'
-        let isConverting = false;
-        
-        // 文件状态枚举
-        const FileStatus = {
-            PENDING: 'pending',
-            CONVERTING: 'converting', 
-            COMPLETED: 'completed',
-            ERROR: 'error'
-        };
-        
-        // 初始化
-        document.addEventListener('DOMContentLoaded', function() {
-            const uploadArea = document.getElementById('uploadArea');
-            const fileInput = document.getElementById('fileInput');
-            
-            // 点击上传区域
-            uploadArea.addEventListener('click', () => fileInput.click());
-            
-            // 文件选择
-            fileInput.addEventListener('change', function(e) {
-                addFiles(Array.from(e.target.files));
-            });
-            
-            // 拖拽上传
-            uploadArea.addEventListener('dragover', function(e) {
-                e.preventDefault();
-                uploadArea.classList.add('dragover');
-            });
-            
-            uploadArea.addEventListener('dragleave', function(e) {
-                e.preventDefault();
-                uploadArea.classList.remove('dragover');
-            });
-            
-            uploadArea.addEventListener('drop', function(e) {
-                e.preventDefault();
-                uploadArea.classList.remove('dragover');
-                const files = Array.from(e.dataTransfer.files);
-                addFiles(files);
-            });
-        });
-        
-        function addFiles(files) {
-            files.forEach(file => {
-                if (!uploadedFiles.find(f => f.name === file.name && f.size === file.size)) {
-                    uploadedFiles.push(file);
-                    fileStates.set(file.name, {
-                        status: FileStatus.PENDING,
-                        progress: 0,
-                        result: null,
-                        error: null
-                    });
-                }
-            });
-            updateFileStatusList();
-            updatePreview();
-        }
-        
-        function updateFileStatusList() {
-            const fileStatusList = document.getElementById('fileStatusList');
-            
-            if (uploadedFiles.length === 0) {
-                fileStatusList.innerHTML = `
-                    <div class="empty-state">
-                        <div style="font-size: 48px; margin-bottom: 15px;">📋</div>
-                        <p>暂无文件</p>
-                        <p style="font-size: 14px; color: #999;">上传文件后将显示在这里</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            fileStatusList.innerHTML = uploadedFiles.map((file, index) => {
-                const state = fileStates.get(file.name);
-                const statusClass = state ? state.status : FileStatus.PENDING;
-                const statusText = getStatusText(statusClass);
-                const statusIndicator = getStatusIndicator(statusClass);
-                
-                return `
-                    <div class="file-card ${statusClass}" data-index="${index}">
-                        <div class="file-header">
-                            <div class="file-name">
-                                <span class="status-indicator ${statusIndicator}"></span>
-                                ${file.name}
-                            </div>
-                            <div class="file-actions">
-                                ${getFileActions(file, state, index)}
-                            </div>
-                        </div>
-                        <div class="file-info">
-                            大小: ${formatFileSize(file.size)} | 类型: ${file.type || '未知'}
-                        </div>
-                        ${getProgressBar(state)}
-                        ${getFilePreview(file, state)}
-                    </div>
-                `;
-            }).join('');
-        }
-        
-        function getStatusText(status) {
-            const statusMap = {
-                [FileStatus.PENDING]: '等待中',
-                [FileStatus.CONVERTING]: '转换中',
-                [FileStatus.COMPLETED]: '已完成',
-                [FileStatus.ERROR]: '转换失败'
-            };
-            return statusMap[status] || '未知';
-        }
-        
-        function getStatusIndicator(status) {
-            return `status-${status}`;
-        }
-        
-        function getFileActions(file, state, index) {
-            const actions = [];
-            
-            if (state && state.status === FileStatus.COMPLETED && state.result) {
-                actions.push(`<button class="btn btn-success" onclick="downloadFile('${file.name}')">📥 下载</button>`);
-            }
-            
-            actions.push(`<button class="btn btn-danger" onclick="removeFile(${index})">🗑️ 删除</button>`);
-            
-            return actions.join('');
-        }
-        
-        function getProgressBar(state) {
-            if (!state || state.status === FileStatus.PENDING) {
-                return '';
-            }
-            
-            const progress = state.progress || 0;
-            return `
-                <div class="progress-bar">
-                    <div class="progress-fill" style="width: ${progress}%"></div>
-                </div>
-            `;
-        }
-        
-        function getFilePreview(file, state) {
-            if (!state || state.status !== FileStatus.COMPLETED) {
-                return '';
-            }
-            
-            return `
-                <div class="file-preview">
-                    <div class="preview-content">
-                        ${state.result ? state.result.substring(0, 200) + '...' : '暂无预览内容'}
-                    </div>
-                </div>
-            `;
-        }
-        
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
-        
-        function removeFile(index) {
-            const file = uploadedFiles[index];
-            uploadedFiles.splice(index, 1);
-            fileStates.delete(file.name);
-            updateFileStatusList();
-            updatePreview();
-        }
-        
-        function clearAllFiles() {
-            if (isConverting) {
-                alert('转换进行中，无法清空文件');
-                return;
-            }
-            uploadedFiles = [];
-            fileStates.clear();
-            updateFileStatusList();
-            updatePreview();
-            hideConversionStatus();
-        }
-        
-        function updatePreview() {
-            const previewContent = document.getElementById('previewContent');
-            
-            if (uploadedFiles.length === 0) {
-                previewContent.innerHTML = `
-                    <div class="empty-state">
-                        <div style="font-size: 48px; margin-bottom: 15px;">👁️</div>
-                        <p>选择文件查看预览</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            // 显示第一个文件的预览
-            const firstFile = uploadedFiles[0];
-            const state = fileStates.get(firstFile.name);
-            
-            if (state && state.status === FileStatus.COMPLETED && state.result) {
-                showFilePreview(firstFile, state.result);
-            } else {
-                previewContent.innerHTML = `
-                    <div class="empty-state">
-                        <div style="font-size: 48px; margin-bottom: 15px;">⏳</div>
-                        <p>等待文件转换完成</p>
-                    </div>
-                `;
-            }
-        }
-        
-        function showFilePreview(file, content) {
-            const previewContent = document.getElementById('previewContent');
-            const mode = currentPreviewMode === 'preview' ? '预览' : 'Markdown';
-            
-            previewContent.innerHTML = `
-                <div style="margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid #dee2e6;">
-                    <h4 style="margin: 0; color: #333;">${file.name} - ${mode}</h4>
-                </div>
-                <div class="preview-content" style="max-height: 400px; overflow-y: auto;">
-                    ${currentPreviewMode === 'preview' ? 
-                        content.replace(/\\n/g, '<br>').substring(0, 1000) + (content.length > 1000 ? '...' : '') :
-                        '<pre>' + content.substring(0, 1000) + (content.length > 1000 ? '...' : '') + '</pre>'
-                    }
-                </div>
-            `;
-        }
-        
-        function togglePreviewMode() {
-            currentPreviewMode = currentPreviewMode === 'preview' ? 'markdown' : 'preview';
-            const btn = document.getElementById('previewModeBtn');
-            btn.textContent = currentPreviewMode === 'preview' ? '📄 预览模式' : '📝 Markdown模式';
-            updatePreview();
-        }
-        
-        async function startConversion() {
-            if (uploadedFiles.length === 0) {
-                alert('请先上传文件');
-                return;
-            }
-            
-            if (isConverting) {
-                alert('转换正在进行中，请等待完成');
-                return;
-            }
-            
-            isConverting = true;
-            showConversionStatus();
-            updateConvertButton();
-            
-            try {
-                // 模拟转换过程
-                for (let i = 0; i < uploadedFiles.length; i++) {
-                    const file = uploadedFiles[i];
-                    const state = fileStates.get(file.name);
-                    
-                    // 更新状态为转换中
-                    state.status = FileStatus.CONVERTING;
-                    state.progress = 0;
-                    updateFileStatusList();
-                    updateConversionProgress(`正在转换: ${file.name}`, (i / uploadedFiles.length) * 100);
-                    
-                    // 模拟转换进度
-                    for (let progress = 0; progress <= 100; progress += 10) {
-                        state.progress = progress;
-                        updateFileStatusList();
-                        await new Promise(resolve => setTimeout(resolve, 100));
-                    }
-                    
-                    // 模拟转换结果
-                    const mockResult = `# ${file.name} 转换结果\\n\\n这是 ${file.name} 的转换结果。\\n\\n## 内容摘要\\n\\n文件已成功转换为Markdown格式。\\n\\n## 详细信息\\n\\n- 文件名: ${file.name}\\n- 文件大小: ${formatFileSize(file.size)}\\n- 转换时间: ${new Date().toLocaleString()}\\n\\n## 转换内容\\n\\n这里是转换后的主要内容...`;
-                    
-                    state.status = FileStatus.COMPLETED;
-                    state.progress = 100;
-                    state.result = mockResult;
-                    updateFileStatusList();
-                }
-                
-                // 显示最后一个文件的预览
-                const lastFile = uploadedFiles[uploadedFiles.length - 1];
-                const lastState = fileStates.get(lastFile.name);
-                showFilePreview(lastFile, lastState.result);
-                
-                updateConversionProgress('转换完成！', 100);
-                showDownloadAllButton();
-                
-            } catch (error) {
-                console.error('转换失败:', error);
-                updateConversionProgress('转换失败: ' + error.message, 0);
-            } finally {
-                isConverting = false;
-                updateConvertButton();
-                setTimeout(() => hideConversionStatus(), 3000);
-            }
-        }
-        
-        function showConversionStatus() {
-            document.getElementById('conversionStatus').classList.add('active');
-        }
-        
-        function hideConversionStatus() {
-            document.getElementById('conversionStatus').classList.remove('active');
-        }
-        
-        function updateConversionProgress(message, progress) {
-            document.getElementById('conversionProgress').textContent = message;
-            document.getElementById('progressFill').style.width = progress + '%';
-        }
-        
-        function updateConvertButton() {
-            const btn = document.getElementById('convertBtn');
-            if (isConverting) {
-                btn.textContent = '⏳ 转换中...';
-                btn.disabled = true;
-                btn.style.opacity = '0.6';
-            } else {
-                btn.textContent = '🚀 开始转换';
-                btn.disabled = false;
-                btn.style.opacity = '1';
-            }
-        }
-        
-        function showDownloadAllButton() {
-            document.getElementById('downloadAllBtn').style.display = 'inline-block';
-        }
-        
-        function downloadFile(filename) {
-            const state = fileStates.get(filename);
-            if (state && state.status === FileStatus.COMPLETED) {
-                // 调用后端API下载文件目录
-                window.open(`/download_file/${encodeURIComponent(filename)}`, '_blank');
-            } else {
-                alert('文件尚未处理完成，无法下载');
-            }
-        }
-        
-        function downloadAllResults() {
-            const completedFiles = uploadedFiles.filter(file => {
-                const state = fileStates.get(file.name);
-                return state && state.status === FileStatus.COMPLETED;
-            });
-            
-            if (completedFiles.length === 0) {
-                alert('没有可下载的文件');
-                return;
-            }
-            
-            // 调用后端API下载所有文件
-            window.open('/download_all', '_blank');
-        }
-    </script>
+    <h1>MinerU PDF转换工具</h1>
+    <p>静态文件未找到，请检查static/index.html文件是否存在。</p>
 </body>
 </html>
         """)
@@ -1125,7 +472,7 @@ async def download_file(filename: str):
         output_dir = "./output"
         
         # 根据原始文件名查找对应的处理结果目录
-        # 处理结果目录格式：{safe_stem}_{时间戳}
+        # 实际目录格式：temp_{safe_stem}_{时间戳}
         safe_filename = safe_stem(filename)
         
         # 查找匹配的目录
@@ -1133,19 +480,40 @@ async def download_file(filename: str):
         if os.path.exists(output_dir):
             for item in os.listdir(output_dir):
                 item_path = os.path.join(output_dir, item)
-                if os.path.isdir(item_path) and item.startswith(safe_filename + "_"):
-                    matching_dirs.append(item)
+                if os.path.isdir(item_path):
+                    # 检查是否匹配 temp_{safe_filename}_{timestamp} 格式
+                    if item.startswith(f"temp_{safe_filename}_"):
+                        matching_dirs.append(item)
+                    # 也检查旧的格式 {safe_filename}_{timestamp}（向后兼容）
+                    elif item.startswith(f"{safe_filename}_"):
+                        matching_dirs.append(item)
         
         if not matching_dirs:
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"未找到文件 {filename} 的处理结果"}
-            )
+            # 如果没找到，尝试更宽松的匹配（处理中文文件名编码问题）
+            logger.info(f"未找到精确匹配，尝试宽松匹配文件名: {filename}")
+            filename_without_ext = Path(filename).stem
+            safe_filename_loose = re.sub(r'[^\w\u4e00-\u9fff]', '_', filename_without_ext)  # 保留中文字符
+            
+            for item in os.listdir(output_dir):
+                item_path = os.path.join(output_dir, item)
+                if os.path.isdir(item_path):
+                    # 检查是否包含文件名的主要部分
+                    if (f"temp_{safe_filename_loose}_" in item or 
+                        f"{safe_filename_loose}_" in item):
+                        matching_dirs.append(item)
+            
+            if not matching_dirs:
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": f"未找到文件 {filename} 的处理结果"}
+                )
         
         # 如果有多个匹配的目录，选择最新的（按时间戳排序）
         matching_dirs.sort(reverse=True)
         target_dir = matching_dirs[0]
         file_path = os.path.join(output_dir, target_dir)
+        
+        logger.info(f"找到匹配目录: {target_dir}")
         
         # 创建ZIP文件
         zip_path = f"{file_path}.zip"
@@ -1263,6 +631,7 @@ def main(ctx, sglang_engine_enable, max_convert_pages, host, port, **kwargs):
     # 将配置参数存储到应用状态中
     app.state.config = kwargs
     app.state.max_convert_pages = max_convert_pages
+    app.state.sglang_engine_enable = sglang_engine_enable
     
     if sglang_engine_enable and MINERU_AVAILABLE:
         try:
