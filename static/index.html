@@ -1364,20 +1364,9 @@
             }
 
             async downloadAllResults() {
-                // 收集本次任务中“已完成”的文件名
-                const completed = this.uploadedFiles
-                    .filter(f => f.status === 'completed')
-                    .map(f => f.name);
-                if (completed.length === 0) {
-                    alert('暂无已完成的文件可打包');
-                    return;
-                }
+                // 打包输出目录中所有成功目录（含本次与历史），与“输出目录文件”数量一致
                 try {
-                    const res = await fetch('/download_all', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ files: completed })
-                    });
+                    const res = await fetch('/download_all');
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     const blob = await res.blob();
                     const url = URL.createObjectURL(blob);
