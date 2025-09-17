@@ -1123,45 +1123,47 @@ async def download_file(filename: str):
     """下载单个文件的处理结果目录（ZIP打包）"""
     try:
         output_dir = "./output"
-        file_path = os.path.join(output_dir, filename)
         
-        if not os.path.exists(file_path):
+        # 根据原始文件名查找对应的处理结果目录
+        # 处理结果目录格式：{safe_stem}_{时间戳}
+        safe_filename = safe_stem(filename)
+        
+        # 查找匹配的目录
+        matching_dirs = []
+        if os.path.exists(output_dir):
+            for item in os.listdir(output_dir):
+                item_path = os.path.join(output_dir, item)
+                if os.path.isdir(item_path) and item.startswith(safe_filename + "_"):
+                    matching_dirs.append(item)
+        
+        if not matching_dirs:
             return JSONResponse(
                 status_code=404,
-                content={"error": f"文件不存在: {filename}"}
+                content={"error": f"未找到文件 {filename} 的处理结果"}
             )
         
-        if os.path.isfile(file_path):
-            # 如果是单个文件，直接返回
-            return FileResponse(
-                path=file_path,
-                filename=filename,
-                media_type="application/octet-stream"
-            )
-        elif os.path.isdir(file_path):
-            # 如果是目录，创建ZIP文件
-            zip_path = f"{file_path}.zip"
-            
-            # 创建ZIP文件
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for root, dirs, files in os.walk(file_path):
-                    for file in files:
-                        file_path_full = os.path.join(root, file)
-                        arcname = os.path.relpath(file_path_full, file_path)
-                        zipf.write(file_path_full, arcname)
-            
-            # 返回ZIP文件
-            return FileResponse(
-                path=zip_path,
-                filename=f"{filename}.zip",
-                media_type="application/zip",
-                background=BackgroundTask(lambda: os.remove(zip_path))  # 下载后删除临时ZIP文件
-            )
-        else:
-            return JSONResponse(
-                status_code=400,
-                content={"error": f"无效的文件类型: {filename}"}
-            )
+        # 如果有多个匹配的目录，选择最新的（按时间戳排序）
+        matching_dirs.sort(reverse=True)
+        target_dir = matching_dirs[0]
+        file_path = os.path.join(output_dir, target_dir)
+        
+        # 创建ZIP文件
+        zip_path = f"{file_path}.zip"
+        
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, dirs, files in os.walk(file_path):
+                for file in files:
+                    file_path_full = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path_full, file_path)
+                    zipf.write(file_path_full, arcname)
+        
+        # 返回ZIP文件
+        return FileResponse(
+            path=zip_path,
+            filename=f"{safe_filename}.zip",
+            media_type="application/zip",
+            background=BackgroundTask(lambda: os.remove(zip_path))  # 下载后删除临时ZIP文件
+        )
             
     except Exception as e:
         logger.exception(e)
@@ -1194,8 +1196,10 @@ async def download_all():
                 content={"error": "没有可下载的目录"}
             )
         
-        # 创建临时ZIP文件
-        zip_path = os.path.join(output_dir, "all_results.zip")
+        # 创建临时ZIP文件，文件名包含时间戳
+        timestamp = time.strftime("%y%m%d_%H%M%S")
+        zip_filename = f"all_results_{timestamp}.zip"
+        zip_path = os.path.join(output_dir, zip_filename)
         
         # 创建ZIP文件
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
@@ -1210,7 +1214,7 @@ async def download_all():
         # 返回ZIP文件
         return FileResponse(
             path=zip_path,
-            filename="all_results.zip",
+            filename=zip_filename,
             media_type="application/zip",
             background=BackgroundTask(lambda: os.remove(zip_path))  # 下载后删除临时ZIP文件
         )

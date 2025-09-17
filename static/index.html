@@ -443,6 +443,14 @@
                         if (parsed.results) {
                             this.results = new Map(parsed.results);
                         }
+                        
+                        // 恢复数据后更新UI
+                        this.updateFileList();
+                        
+                        // 如果有文件，显示第一个文件的预览
+                        if (this.uploadedFiles.length > 0) {
+                            this.showFirstFilePreview();
+                        }
                     }
                 } catch (error) {
                     console.error('加载存储数据失败:', error);
@@ -1031,54 +1039,13 @@
 
 
             downloadResult(filename) {
-                const result = this.results.get(filename);
-                if (result) {
-                    if (result.blob) {
-                        // 下载ZIP文件（包含所有结果）
-                        const a = document.createElement('a');
-                        const url = URL.createObjectURL(result.blob);
-                        a.href = url;
-                        a.download = result.filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        URL.revokeObjectURL(url);
-                    } else if (result.url) {
-                        // 旧格式：使用URL
-                        const a = document.createElement('a');
-                        a.href = result.url;
-                        a.download = result.filename;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                    } else {
-                        // 新格式：创建Markdown文件下载
-                        const content = result.txtContent || result.mdContent || '';
-                        const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-                        const url = URL.createObjectURL(blob);
-                        
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = result.filename || filename.replace(/\.[^/.]+$/, '') + '.md';
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        
-                        URL.revokeObjectURL(url);
-                    }
-                }
+                // 调用后端API下载文件目录（ZIP打包）
+                window.open(`/download_file/${encodeURIComponent(filename)}`, '_blank');
             }
 
             downloadAllResults() {
-                if (this.results.size === 0) {
-                    alert('没有可下载的结果');
-                    return;
-                }
-                
-                // 逐个下载所有结果
-                this.results.forEach((result, filename) => {
-                    setTimeout(() => this.downloadResult(filename), 100);
-                });
+                // 调用后端API下载所有文件（ZIP打包）
+                window.open('/download_all', '_blank');
             }
             
 
