@@ -223,6 +223,7 @@
                 this.isAutoUploading = false;
                 this.isProcessing = false;
                 this.currentProcessingIndex = -1;
+                this.manualViewFile = null; // 用户手动查看的文件名（锁定预览）
                 this.loadFromStorage();
                 this.init();
             }
@@ -479,9 +480,8 @@
                 this.saveToStorage();
                 this.syncFileListToServer();
                 
-                // 批量上传后显示第一个文件的预览
-                if (validFiles.length > 0) {
-                    // 显示第一个文件的预览
+                // 批量上传后显示第一个文件的预览（若未手动锁定预览）
+                if (validFiles.length > 0 && !this.manualViewFile) {
                     this.showFirstFilePreview();
                 }
 
@@ -963,6 +963,8 @@
                         await this.updateAllFileStatuses();
                         // 队列运行中时，自动把新增的待处理文件上传入队
                         await this.autoUploadPendingIfQueueRunning();
+                        // 自动预览策略：根据当前状态切换展示
+                        this.autoPreviewTick();
                     } catch (error) {
                         console.error('轮询所有文件状态失败:', error);
                     }
@@ -1010,6 +1012,7 @@
                         
                         // 更新所有有任务ID的文件
                         let hasActiveTasks = false;
+                        let hasProcessing = false;
                         for (const fileData of this.uploadedFiles) {
                             if (fileData.taskId) {
                                 const task = allTasks.find(t => t.task_id === fileData.taskId);
@@ -1019,6 +1022,9 @@
                                     // 检查是否有活跃任务（非完成状态）
                                     if (task.status !== 'completed' && task.status !== 'failed') {
                                         hasActiveTasks = true;
+                                    }
+                                    if (task.status === 'processing') {
+                                        hasProcessing = true;
                                     }
                                 }
                             }
@@ -1040,10 +1046,41 @@
                             if (notice) {
                                 notice.style.display = 'none';
                             }
+
+                            // 任务结束后，若未手动锁定预览，展示最后一个文件结果
+                            this.autoPreviewTick();
                         }
                     }
                 } catch (error) {
                     console.error('更新所有文件状态失败:', error);
+                }
+            }
+
+            // 自动预览策略
+            autoPreviewTick() {
+                // 若用户手动查看过某个文件，则不自动切换
+                if (this.manualViewFile) {
+                    return;
+                }
+
+                // 优先展示正在处理的文件
+                const processing = this.uploadedFiles.find(f => f.status === 'processing');
+                if (processing) {
+                    this.showProcessingPreview(processing);
+                    return;
+                }
+
+                // 如无处理，若有已完成文件，展示最后一个完成的文件结果
+                const completed = this.uploadedFiles.filter(f => f.status === 'completed');
+                if (completed.length > 0) {
+                    const last = completed[completed.length - 1];
+                    this.showMarkdownResult(last.name);
+                    return;
+                }
+
+                // 否则展示第一个已上传的文件预览
+                if (this.uploadedFiles.length > 0) {
+                    this.showFirstFilePreview();
                 }
             }
 
@@ -1374,6 +1411,8 @@
                         const result = await response.json();
                         // 显示Markdown内容
                         await this.showMarkdownResult(filename, result.md_content, result.txt_content);
+                        // 锁定为用户手动查看，避免自动切换
+                        this.manualViewFile = filename;
                     } else {
                         const error = await response.json();
                         alert(`获取Markdown内容失败: ${error.error}`);
