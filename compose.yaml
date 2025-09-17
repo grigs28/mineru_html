@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  mineru-web:
+    build: .
+    container_name: mineru-web
+    ports:
+      - "7860:7860"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=7860
+      - MAX_CONVERT_PAGES=1000
+    volumes:
+      - /opt/mineru/web_mineru/output:/sgl-workspace/sglang/output
+      - /opt/mineru/web_mineru/cli:/usr/local/lib/python3.10/dist-packages/mineru/cli
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7860/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'

@@ -1,0 +1,1595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MinerU PDF转换工具</title>
+    <link rel="stylesheet" href="static/styles.css">
+    <!-- 添加marked.js用于更好的Markdown渲染 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+    <!-- 添加KaTeX用于数学公式渲染 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+    <!-- 添加JSZip用于ZIP文件处理 -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <style>
+        /* Markdown渲染样式 */
+        .markdown-content {
+            line-height: 1.6;
+            color: #333;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        
+        .markdown-content h1, .markdown-content h2, .markdown-content h3, 
+        .markdown-content h4, .markdown-content h5, .markdown-content h6 {
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+            font-weight: 600;
+            line-height: 1.25;
+        }
+        
+        .markdown-content h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        .markdown-content h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        .markdown-content h3 { font-size: 1.25em; }
+        .markdown-content h4 { font-size: 1em; }
+        .markdown-content h5 { font-size: 0.875em; }
+        .markdown-content h6 { font-size: 0.85em; color: #6a737d; }
+        
+        .markdown-content p {
+            margin: 0 0 1em 0;
+        }
+        
+        .markdown-content ul, .markdown-content ol {
+            margin: 0 0 1em 0;
+            padding-left: 2em;
+        }
+        
+        .markdown-content li {
+            margin: 0.25em 0;
+        }
+        
+        .markdown-content blockquote {
+            margin: 0 0 1em 0;
+            padding: 0 1em;
+            color: #6a737d;
+            border-left: 0.25em solid #dfe2e5;
+        }
+        
+        .markdown-content pre {
+            background-color: #f6f8fa;
+            border-radius: 6px;
+            font-size: 85%;
+            line-height: 1.45;
+            overflow: auto;
+            padding: 16px;
+            margin: 0 0 1em 0;
+        }
+        
+        .markdown-content code {
+            background-color: rgba(27,31,35,0.05);
+            border-radius: 3px;
+            font-size: 85%;
+            margin: 0;
+            padding: 0.2em 0.4em;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        }
+        
+        .markdown-content pre code {
+            background-color: transparent;
+            border: 0;
+            display: inline;
+            line-height: inherit;
+            margin: 0;
+            max-width: auto;
+            overflow: visible;
+            padding: 0;
+            word-wrap: normal;
+        }
+        
+        .markdown-content img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 6px;
+            margin: 0.5em 0;
+        }
+        
+        .markdown-content a {
+            color: #0366d6;
+            text-decoration: none;
+        }
+        
+        .markdown-content a:hover {
+            text-decoration: underline;
+        }
+        
+        .markdown-content hr {
+            height: 0.25em;
+            padding: 0;
+            margin: 24px 0;
+            background-color: #e1e4e8;
+            border: 0;
+        }
+        
+        .markdown-content strong {
+            font-weight: 600;
+        }
+        
+        .markdown-content em {
+            font-style: italic;
+        }
+        
+        .markdown-content del {
+            text-decoration: line-through;
+        }
+        
+        /* 表格样式 */
+        .markdown-content table {
+            border-collapse: collapse;
+            margin: 0 0 1em 0;
+            width: 100%;
+        }
+        
+        .markdown-content th, .markdown-content td {
+            border: 1px solid #dfe2e5;
+            padding: 6px 13px;
+        }
+        
+        .markdown-content th {
+            background-color: #f6f8fa;
+            font-weight: 600;
+        }
+        
+        .markdown-content tr:nth-child(2n) {
+            background-color: #f6f8fa;
+        }
+        
+        /* Markdown容器样式 */
+        .markdown-container {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .markdown-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #e1e4e8;
+            margin-bottom: 15px;
+            flex-shrink: 0;
+        }
+        
+        .markdown-header h3 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: #24292e;
+        }
+        
+        .btn-copy {
+            background: #f6f8fa;
+            border: 1px solid #d1d5da;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            color: #586069;
+            transition: all 0.2s;
+        }
+        
+        .btn-copy:hover {
+            background: #e1e4e8;
+            border-color: #c6cbd1;
+        }
+        
+        .markdown-preview {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            background: #fff;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            height: 400px;
+        }
+        
+        .markdown-text {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            background: #f6f8fa;
+            border: 1px solid #e1e4e8;
+            border-radius: 6px;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            height: 400px;
+        }
+        
+        /* KaTeX数学公式样式 */
+        .katex {
+            font-size: 1.1em;
+        }
+        
+        .katex-display {
+            margin: 1em 0;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>MinerU PDF转换工具</h1>
+            <p>智能PDF文档解析与转换平台</p>
+        </div>
+
+        <div class="main-content">
+            <div class="left-panel">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📁</div>
+                    <div class="upload-text">拖拽文件到此处或点击选择文件</div>
+                    <div class="upload-hint">支持PDF和图片文件，可同时上传多个文件</div>
+                    <input type="file" id="fileInput" multiple accept=".pdf,.png,.jpg,.jpeg,.bmp,.tiff" style="display: none;">
+                </div>
+
+
+                <div class="form-group">
+                    <label for="maxPages">最大转换页数</label>
+                    <div class="slider-container">
+                        <input type="range" id="maxPages" class="slider" min="1" max="1000" value="500">
+                        <span id="maxPagesValue">500</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="backend">后端选择</label>
+                    <select id="backend" class="form-control">
+                        <option value="pipeline">Pipeline</option>
+                        <option value="vlm-transformers">VLM Transformers</option>
+                        <option value="vlm-sglang-client">VLM SgLang Client</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="serverUrlGroup" style="display: none;">
+                    <label for="serverUrl">服务器URL</label>
+                    <input type="text" id="serverUrl" class="form-control" value="http://localhost:30000" placeholder="http://localhost:30000">
+                </div>
+
+                <div class="checkbox-group">
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="formulaEnable" checked>
+                        <label for="formulaEnable">启用公式识别</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="tableEnable" checked>
+                        <label for="tableEnable">启用表格识别</label>
+                    </div>
+                </div>
+
+                <div class="form-group" id="ocrOptions" style="display: none;">
+                    <label for="language">语言</label>
+                    <select id="language" class="form-control">
+                        <option value="ch">中文</option>
+                        <option value="en">英文</option>
+                        <option value="latin">拉丁语系</option>
+                        <option value="arabic">阿拉伯语系</option>
+                        <option value="east_slavic">东斯拉夫语系</option>
+                        <option value="cyrillic">西里尔语系</option>
+                        <option value="devanagari">天城文语系</option>
+                    </select>
+                    <div class="checkbox-item" style="margin-top: 10px;">
+                        <input type="checkbox" id="isOcr">
+                        <label for="isOcr">强制启用OCR</label>
+                    </div>
+                </div>
+
+
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>正在处理文件，请稍候...</p>
+                </div>
+
+
+                <!-- PDF预览区域 -->
+                <div class="pdf-preview-section" id="pdfPreviewSection">
+                    <h3>📄 PDF预览</h3>
+                    <div class="pdf-preview-container" id="pdfPreviewContainer">
+                        <div class="pdf-preview-placeholder">
+                            <div style="font-size: 48px; margin-bottom: 15px;">📄</div>
+                            <p>PDF预览</p>
+                            <p style="font-size: 14px; color: #999;">上传PDF文件后将显示预览</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="right-panel">
+                <!-- 统一文件状态卡片区域 -->
+                <div class="file-status-cards" id="fileStatusCards">
+                    <div class="cards-header">
+                        <h3>📁 文件列表</h3>
+                        <div class="cards-actions">
+                            <button class="btn-icon" id="convertBtn" title="开始转换">
+                                <span class="icon">🚀</span>
+                                <span class="btn-text">开始转换</span>
+                            </button>
+                            <button class="btn-icon" id="clearBtn" title="清空">
+                                <span class="icon">🗑️</span>
+                                <span class="btn-text">清空</span>
+                            </button>
+                            <button class="btn-icon" onclick="app.downloadAllResults()" title="全部下载">
+                                <span class="icon">📥</span>
+                                <span class="btn-text">全部下载</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="cards-container" id="cardsContainer">
+                        <div class="empty-state">
+                            <div style="font-size: 48px; margin-bottom: 15px;">📋</div>
+                            <p>暂无文件</p>
+                            <p style="font-size: 14px; color: #999;">上传文件后将显示在这里</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tabs">
+                    <div class="tab active" data-tab="markdown-rendering">Markdown rendering</div>
+                    <div class="tab" data-tab="markdown-text">Markdown text</div>
+                    <div class="tab" data-tab="examples">输出文件</div>
+                </div>
+
+                <div class="tab-content active" id="markdown-renderingTab">
+                    <div class="markdown-container">
+                        <div class="markdown-header">
+                            <h3>Markdown rendering</h3>
+                            <button class="btn-copy" id="copyMarkdownBtn" onclick="app.copyMarkdown()" title="复制Markdown内容">
+                                📋 复制
+                            </button>
+                        </div>
+                    <div class="markdown-preview" id="markdownPreview">
+                        <p style="text-align: center; color: #666; margin-top: 100px;">
+                                请上传文件并开始转换以查看Markdown渲染
+                        </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="markdown-textTab">
+                    <div class="markdown-container">
+                        <div class="markdown-header">
+                            <h3>Markdown text</h3>
+                            <button class="btn-copy" id="copyTextBtn" onclick="app.copyText()" title="复制文本内容">
+                                📋 复制
+                            </button>
+                        </div>
+                    <div class="markdown-text" id="markdownText">
+                        <p style="text-align: center; color: #666; margin-top: 100px;">
+                                请上传文件并开始转换以查看Markdown文本
+                        </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="examplesTab">
+                    <div class="examples-section">
+                        <div class="examples-header">
+                            <h3>输出目录文件</h3>
+                            <div class="examples-actions">
+                                <button class="btn btn-small btn-secondary" id="refreshExamples">刷新</button>
+                                <button class="btn btn-small btn-secondary" id="selectAllExamples">全选</button>
+                                <button class="btn btn-small btn-secondary" id="deleteSelected">删除</button>
+                            </div>
+                        </div>
+                        <div class="examples-list" id="examplesList">
+                            <p style="text-align: center; color: #666; padding: 20px;">
+                                正在加载文件列表...
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class MinerUApp {
+            constructor() {
+                this.uploadedFiles = [];
+                this.processingFiles = new Set();
+                this.results = new Map();
+                this.isProcessing = false;
+                this.currentProcessingIndex = -1;
+                this.loadFromStorage();
+                this.init();
+            }
+
+            init() {
+                this.setupEventListeners();
+                this.updateSliderValue();
+                this.loadExamples();
+                this.updateFileList();
+            }
+
+            // 持久化存储方法
+            saveToStorage() {
+                const data = {
+                    uploadedFiles: this.uploadedFiles.map(file => ({
+                        name: file.name,
+                        size: file.size,
+                        type: file.type,
+                        lastModified: file.lastModified,
+                        status: file.status || 'pending',
+                        startTime: file.startTime || null,
+                        endTime: file.endTime || null,
+                        processingTime: file.processingTime || null
+                    })),
+                    results: Array.from(this.results.entries())
+                };
+                localStorage.setItem('mineru_files', JSON.stringify(data));
+            }
+
+            loadFromStorage() {
+                try {
+                    const data = localStorage.getItem('mineru_files');
+                    if (data) {
+                        const parsed = JSON.parse(data);
+                        // 恢复文件列表（不包含File对象，需要重新创建）
+                        this.uploadedFiles = parsed.uploadedFiles || [];
+                        // 恢复结果
+                        if (parsed.results) {
+                            this.results = new Map(parsed.results);
+                        }
+                    }
+                } catch (error) {
+                    console.error('加载存储数据失败:', error);
+                    this.uploadedFiles = [];
+                    this.results = new Map();
+                }
+            }
+
+            // 获取北京时区时间
+            getBeijingTime() {
+                return new Date().toLocaleString('zh-CN', {
+                    timeZone: 'Asia/Shanghai',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+            }
+
+            // 计算处理时长
+            calculateProcessingTime(startTime, endTime) {
+                if (!startTime || !endTime) return null;
+                const start = new Date(startTime);
+                const end = new Date(endTime);
+                const diffMs = end - start;
+                const minutes = Math.floor(diffMs / 60000);
+                const seconds = Math.floor((diffMs % 60000) / 1000);
+                return `${minutes}分${seconds}秒`;
+            }
+
+            setupEventListeners() {
+                // 文件上传
+                const uploadArea = document.getElementById('uploadArea');
+                const fileInput = document.getElementById('fileInput');
+
+                uploadArea.addEventListener('click', () => fileInput.click());
+                uploadArea.addEventListener('dragover', this.handleDragOver.bind(this));
+                uploadArea.addEventListener('dragleave', this.handleDragLeave.bind(this));
+                uploadArea.addEventListener('drop', this.handleDrop.bind(this));
+                fileInput.addEventListener('change', this.handleFileSelect.bind(this));
+
+                // 滑块
+                document.getElementById('maxPages').addEventListener('input', this.updateSliderValue.bind(this));
+
+                // 后端选择
+                document.getElementById('backend').addEventListener('change', this.updateBackendOptions.bind(this));
+
+                // 按钮
+                document.getElementById('convertBtn').addEventListener('click', this.startConversion.bind(this));
+                document.getElementById('clearBtn').addEventListener('click', this.clearAll.bind(this));
+
+                // 标签页
+                document.querySelectorAll('.tab').forEach(tab => {
+                    tab.addEventListener('click', this.switchTab.bind(this));
+                });
+
+                // 输出文件操作
+                document.getElementById('refreshExamples').addEventListener('click', this.loadExamples.bind(this));
+                document.getElementById('selectAllExamples').addEventListener('click', this.selectAllExamples.bind(this));
+                document.getElementById('deleteSelected').addEventListener('click', this.deleteSelectedExamples.bind(this));
+            }
+
+            handleDragOver(e) {
+                e.preventDefault();
+                e.currentTarget.classList.add('dragover');
+            }
+
+            handleDragLeave(e) {
+                e.preventDefault();
+                e.currentTarget.classList.remove('dragover');
+            }
+
+            handleDrop(e) {
+                e.preventDefault();
+                e.currentTarget.classList.remove('dragover');
+                const files = Array.from(e.dataTransfer.files);
+                this.addFiles(files);
+            }
+
+            handleFileSelect(e) {
+                const files = Array.from(e.target.files);
+                this.addFiles(files);
+            }
+
+            addFiles(files) {
+                const validFiles = files.filter(file => {
+                    const ext = file.name.toLowerCase().split('.').pop();
+                    return ['pdf', 'png', 'jpg', 'jpeg', 'bmp', 'tiff'].includes(ext);
+                });
+
+                validFiles.forEach(file => {
+                    if (!this.uploadedFiles.find(f => f.name === file.name && f.size === file.size)) {
+                        this.uploadedFiles.push({
+                            file: file,
+                            name: file.name,
+                            size: file.size,
+                            status: 'pending',
+                            uploadTime: new Date(),
+                            startTime: null,
+                            endTime: null,
+                            processingTime: null
+                        });
+                    }
+                });
+
+                this.updateFileList();
+                this.saveToStorage();
+                
+                // 批量上传后显示第一个文件的预览
+                if (validFiles.length > 0) {
+                    this.showFirstFilePreview();
+                    // 如果是PDF文件，显示PDF预览
+                    const firstFile = validFiles[0];
+                    if (firstFile.name.toLowerCase().endsWith('.pdf')) {
+                        this.showPdfPreview(firstFile);
+                    }
+                }
+            }
+
+            updateFileList() {
+                // 直接更新文件状态卡片
+                this.updateFileStatusCards();
+            }
+
+            updateFileStatusCards() {
+                const fileStatusCards = document.getElementById('fileStatusCards');
+                const cardsContainer = document.getElementById('cardsContainer');
+                
+                // 文件状态区域始终显示
+                    fileStatusCards.style.display = 'block';
+                
+                // 如果有文件，显示文件卡片
+                if (this.uploadedFiles.length > 0 || this.results.size > 0) {
+                    cardsContainer.innerHTML = '';
+
+                    // 显示上传的文件（包括已上传和正在处理的）
+                    this.uploadedFiles.forEach((fileData, index) => {
+                        const fileCard = this.createFileCard(fileData, index);
+                        cardsContainer.appendChild(fileCard);
+                    });
+
+                } else {
+                    // 显示空状态
+                    cardsContainer.innerHTML = `
+                        <div class="empty-state">
+                            <div style="font-size: 48px; margin-bottom: 15px;">📋</div>
+                            <p>暂无文件</p>
+                            <p style="font-size: 14px; color: #999;">上传文件后将显示在这里</p>
+                        </div>
+                    `;
+                }
+            }
+
+            createFileCard(fileData, index) {
+                const card = document.createElement('div');
+                card.className = 'file-card';
+                
+                const fileIcon = this.getFileIcon(fileData.name);
+                const statusBadge = this.getStatusBadge(fileData.status);
+                const progressBar = this.getProgressBar(fileData.status);
+                const actions = this.getFileActions(fileData, index);
+                
+                // 构建简化的时间信息
+                let timeInfo = '';
+                if (fileData.status === 'processing' && fileData.startTime) {
+                    timeInfo = `开始: ${fileData.startTime} | 状态: 处理中`;
+                } else if (fileData.status === 'completed') {
+                    timeInfo = `开始: ${fileData.startTime || '未知'} | 结束: ${fileData.endTime || '未知'} | 耗时: ${fileData.processingTime || '未知'}`;
+                } else if (fileData.status === 'error') {
+                    timeInfo = `开始: ${fileData.startTime || '未知'} | 失败: ${fileData.endTime || '未知'} | 耗时: ${fileData.processingTime || '未知'}`;
+                } else {
+                    timeInfo = '状态: 待处理';
+                }
+                
+                const detailInfo = `
+                    <div class="file-detail">
+                        <div class="detail-item-single">
+                            <span class="detail-value">${timeInfo}</span>
+                        </div>
+                    </div>
+                `;
+                
+                card.innerHTML = `
+                    <div class="file-card-header">
+                        <div class="file-info">
+                            <span class="file-icon">${fileIcon}</span>
+                            <span class="file-name" title="${fileData.name}">${fileData.name}</span>
+                        </div>
+                        <div class="status-badge ${fileData.status}">${statusBadge}</div>
+                    </div>
+                    <div class="file-card-body">
+                        ${progressBar}
+                        ${detailInfo}
+                    </div>
+                    <div class="file-card-footer">
+                        <span class="file-size">${this.formatFileSize(fileData.size)}</span>
+                        <div class="footer-actions">
+                            ${fileData.status === 'completed' && this.results.has(fileData.name) 
+                                ? `<button class="btn-card btn-download" onclick="app.downloadResult('${fileData.name}')">📥 下载</button>`
+                                : `<button class="btn-card btn-download" disabled>📥 下载</button>`
+                            }
+                            ${actions}
+                        </div>
+                    </div>
+                `;
+                
+                return card;
+            }
+
+
+            getFileIcon(filename) {
+                const ext = filename.toLowerCase().split('.').pop();
+                const iconMap = {
+                    'pdf': '📄',
+                    'png': '🖼️',
+                    'jpg': '🖼️',
+                    'jpeg': '🖼️',
+                    'gif': '🖼️',
+                    'webp': '🖼️',
+                    'md': '📝',
+                    'txt': '📄',
+                    'zip': '📦'
+                };
+                return iconMap[ext] || '📁';
+            }
+
+            getStatusBadge(status) {
+                const statusMap = {
+                    'pending': '⏳ 待处理',
+                    'processing': '⚙️ 处理中',
+                    'completed': '✅ 成功',
+                    'error': '❌ 失败'
+                };
+                return statusMap[status] || '❓ 未知';
+            }
+
+            getProgressBar(status) {
+                if (status === 'processing') {
+                    return `
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 60%; animation: pulse 2s infinite;"></div>
+                        </div>
+                    `;
+                } else if (status === 'completed') {
+                    return `
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 100%;"></div>
+                        </div>
+                    `;
+                } else if (status === 'error') {
+                    return `
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 100%; background: #dc3545;"></div>
+                        </div>
+                    `;
+                }
+                return '';
+            }
+
+            getFileActions(fileData, index) {
+                const viewBtn = fileData.status === 'completed' && this.results.has(fileData.name)
+                    ? `<button class="btn-card btn-view" onclick="app.viewResult('${fileData.name}')">👁️ 查看</button>`
+                    : `<button class="btn-card btn-view" disabled>👁️ 查看</button>`;
+                
+                const deleteBtn = `<button class="btn-card btn-delete" onclick="app.removeFile(${index})">🗑️ 删除</button>`;
+                
+                return viewBtn + deleteBtn;
+            }
+
+            formatTime(date) {
+                if (!date) return '';
+                const now = new Date();
+                const diff = now - date;
+                const minutes = Math.floor(diff / 60000);
+                const hours = Math.floor(diff / 3600000);
+                const days = Math.floor(diff / 86400000);
+                
+                if (days > 0) return `${days}天前`;
+                if (hours > 0) return `${hours}小时前`;
+                if (minutes > 0) return `${minutes}分钟前`;
+                return '刚刚';
+            }
+            
+            getTimeInfo(fileData) {
+                switch (fileData.status) {
+                    case 'pending':
+                        return `📤 待处理`;
+                    case 'processing':
+                        if (fileData.startTime) {
+                            return `⚙️ 处理中 (开始: ${fileData.startTime})`;
+                        }
+                        return '⚙️ 处理中';
+                    case 'completed':
+                        if (fileData.processingTime) {
+                            return `✅ 完成 (耗时: ${fileData.processingTime})`;
+                        }
+                        return '✅ 完成';
+                    case 'error':
+                        if (fileData.processingTime) {
+                            return `❌ 失败 (耗时: ${fileData.processingTime})`;
+                        }
+                        return '❌ 失败';
+                    default:
+                        return '📤 待处理';
+                }
+            }
+            
+            formatDuration(milliseconds) {
+                const seconds = Math.floor(milliseconds / 1000);
+                const minutes = Math.floor(seconds / 60);
+                const hours = Math.floor(minutes / 60);
+                
+                if (hours > 0) {
+                    return `${hours}小时${minutes % 60}分钟`;
+                } else if (minutes > 0) {
+                    return `${minutes}分${seconds % 60}秒`;
+                } else {
+                    return `${seconds}秒`;
+                }
+            }
+
+            getStatusText(status) {
+                const statusMap = {
+                    'pending': '待处理',
+                    'processing': '处理中',
+                    'completed': '转换成功',
+                    'error': '转换失败'
+                };
+                return statusMap[status] || status;
+            }
+
+            removeFile(index) {
+                this.uploadedFiles.splice(index, 1);
+                this.updateFileList();
+            }
+
+            updateSliderValue() {
+                const slider = document.getElementById('maxPages');
+                const value = document.getElementById('maxPagesValue');
+                value.textContent = slider.value;
+            }
+
+            updateBackendOptions() {
+                const backend = document.getElementById('backend').value;
+                const serverUrlGroup = document.getElementById('serverUrlGroup');
+                const ocrOptions = document.getElementById('ocrOptions');
+
+                if (backend === 'vlm-sglang-client') {
+                    serverUrlGroup.style.display = 'block';
+                    ocrOptions.style.display = 'none';
+                } else if (backend === 'pipeline') {
+                    serverUrlGroup.style.display = 'none';
+                    ocrOptions.style.display = 'block';
+                } else {
+                    serverUrlGroup.style.display = 'none';
+                    ocrOptions.style.display = 'none';
+                }
+            }
+
+            async startConversion() {
+                if (this.uploadedFiles.length === 0) {
+                    alert('请先上传文件');
+                    return;
+                }
+
+                if (this.isProcessing) {
+                    alert('转换正在进行中，请等待完成');
+                    return;
+                }
+
+                this.isProcessing = true;
+                const convertBtn = document.getElementById('convertBtn');
+                convertBtn.disabled = true;
+                convertBtn.innerHTML = '<span class="icon">⏳</span><span class="btn-text">转换中</span>';
+
+                try {
+                    // 逐一处理文件
+                    for (let i = 0; i < this.uploadedFiles.length; i++) {
+                        const fileData = this.uploadedFiles[i];
+                        
+                        // 只处理待处理的文件
+                        if (fileData.status === 'pending') {
+                            this.currentProcessingIndex = i;
+                            
+                            // 更新状态为处理中
+                            fileData.status = 'processing';
+                            fileData.startTime = this.getBeijingTime();
+                            this.updateFileList();
+                            this.saveToStorage();
+                            
+                            // 显示当前处理文件的预览
+                            this.showProcessingPreview(fileData);
+                            
+                            // 处理文件
+                            await this.processFile(fileData);
+                            
+                            // 更新状态为完成
+                            fileData.status = 'completed';
+                            fileData.endTime = this.getBeijingTime();
+                            fileData.processingTime = this.calculateProcessingTime(fileData.startTime, fileData.endTime);
+                            this.updateFileList();
+                            this.saveToStorage();
+                            
+                            // 显示完成预览
+                            this.showCompletedPreview(fileData);
+                        }
+                    }
+                    
+                    // 所有文件处理完成
+                    alert('所有文件转换完成！您可以关闭浏览器，转换结果已保存。');
+                    
+                } catch (error) {
+                    console.error('转换过程中出现错误:', error);
+                    alert('转换过程中出现错误: ' + error.message);
+                } finally {
+                    this.isProcessing = false;
+                    this.currentProcessingIndex = -1;
+                    convertBtn.disabled = false;
+                    convertBtn.innerHTML = '<span class="icon">🚀</span><span class="btn-text">开始转换</span>';
+                }
+            }
+
+            async processFile(fileData) {
+                try {
+                    // 检查文件类型，如果不是PDF，先转换为PDF
+                    let fileToProcess = fileData.file;
+                    const fileName = fileData.name.toLowerCase();
+                    const isPdf = fileName.endsWith('.pdf');
+                    
+                    if (!isPdf) {
+                        // 非PDF文件，需要先转换为PDF
+                        console.log(`转换非PDF文件: ${fileData.name}`);
+                        // 这里需要调用后端的to_pdf接口
+                        const convertResponse = await fetch('/convert_to_pdf', {
+                            method: 'POST',
+                            body: fileData.file
+                        });
+                        
+                        if (convertResponse.ok) {
+                            const pdfBlob = await convertResponse.blob();
+                            fileToProcess = new File([pdfBlob], fileData.name.replace(/\.[^/.]+$/, '.pdf'), { type: 'application/pdf' });
+                        } else {
+                            throw new Error('文件转换为PDF失败');
+                        }
+                    }
+                    
+                    const formData = new FormData();
+                    formData.append('files', fileToProcess);
+                    formData.append('output_dir', './output');
+                    formData.append('lang_list', document.getElementById('language').value);
+                    formData.append('backend', document.getElementById('backend').value);
+                    formData.append('parse_method', document.getElementById('isOcr').checked ? 'ocr' : 'auto');
+                    formData.append('formula_enable', document.getElementById('formulaEnable').checked);
+                    formData.append('table_enable', document.getElementById('tableEnable').checked);
+                    formData.append('server_url', document.getElementById('serverUrl').value || null);
+                    formData.append('return_md', true);
+                    formData.append('return_images', true);
+                    formData.append('response_format_zip', true);
+                    formData.append('start_page_id', 0);
+                    formData.append('end_page_id', parseInt(document.getElementById('maxPages').value) - 1);
+
+                    const response = await fetch('/file_parse', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (response.ok) {
+                        // 检查响应类型
+                        const contentType = response.headers.get('content-type');
+                        
+                        if (contentType && contentType.includes('application/json')) {
+                            // 如果是JSON响应，直接解析
+                            const result = await response.json();
+                            this.handleJsonResponse(fileData, result);
+                        } else {
+                            // 如果是ZIP文件，直接存储blob
+                            const blob = await response.blob();
+                            this.handleZipResponse(fileData, blob);
+                        }
+
+                        fileData.status = 'completed';
+                        fileData.endTime = new Date();
+                        if (fileData.startTime) {
+                            fileData.processingTime = fileData.endTime - fileData.startTime;
+                        }
+                    } else {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                } catch (error) {
+                    console.error(`处理文件 ${fileData.name} 时出错:`, error);
+                    fileData.status = 'error';
+                    fileData.endTime = new Date();
+                    if (fileData.startTime) {
+                        fileData.processingTime = fileData.endTime - fileData.startTime;
+                    }
+                }
+            }
+            
+            async handleJsonResponse(fileData, result) {
+                // 直接使用后端返回的结果（与gradio_app.py.sample完全一致）
+                const mdContent = result.md_content || '';
+                const txtContent = result.txt_content || '';
+                const zipPath = result.archive_zip_path || '';
+                const pdfPath = result.new_pdf_path || '';
+                
+                // 使用后端生成的文件名
+                const fileName = result.file_name || fileData.name.replace(/\.[^/.]+$/, '');
+                
+                this.results.set(fileData.name, {
+                    mdContent: mdContent,
+                    txtContent: txtContent,
+                    zipPath: zipPath,
+                    pdfPath: pdfPath,
+                    filename: fileName + '.md',
+                    originalName: fileData.name,
+                    type: 'json'
+                });
+                
+                // 立即显示结果
+                this.showMarkdownResult(fileData.name, mdContent, txtContent);
+            }
+            
+            handleZipResponse(fileData, blob) {
+                // 直接存储后端返回的ZIP文件（与gradio_app.py.sample完全一致）
+                const timestamp = this.getCurrentTimestamp();
+                const baseName = this.safeStem(fileData.name);
+                const fileName = `${baseName}_${timestamp}`;
+                
+                this.results.set(fileData.name, {
+                    blob: blob,
+                    filename: fileName + '.zip',
+                    originalName: fileData.name,
+                    type: 'zip'
+                });
+                
+                // 显示处理完成消息
+                this.showMarkdownResult(fileData.name, 
+                    '## 转换完成\n\n文件已成功转换，请点击下载按钮获取完整的转换结果。', 
+                    '转换完成\n\n文件已成功转换，请点击下载按钮获取完整的转换结果。'
+                );
+            }
+            
+            
+            // 生成当前时间戳（格式：yymmdd_HHMMSS）
+            getCurrentTimestamp() {
+                const now = new Date();
+                const year = now.getFullYear().toString().slice(-2);
+                const month = (now.getMonth() + 1).toString().padStart(2, '0');
+                const day = now.getDate().toString().padStart(2, '0');
+                const hours = now.getHours().toString().padStart(2, '0');
+                const minutes = now.getMinutes().toString().padStart(2, '0');
+                const seconds = now.getSeconds().toString().padStart(2, '0');
+                return `${year}${month}${day}_${hours}${minutes}${seconds}`;
+            }
+            
+            // 安全文件名处理（只保留字母、数字、下划线和点）
+            safeStem(filename) {
+                // 移除扩展名
+                const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
+                // 只保留字母、数字、下划线和点，其他字符替换为下划线
+                return nameWithoutExt.replace(/[^\w.]/g, '_');
+            }
+            
+            
+            showMarkdownResult(filename, mdContent, txtContent) {
+                // 切换到Markdown rendering标签页
+                this.switchToTab('markdown-rendering');
+                
+                // 显示渲染后的Markdown
+                document.getElementById('markdownPreview').innerHTML = 
+                    `<div class="markdown-content">${this.markdownToHtml(mdContent)}</div>`;
+                
+                // 显示原始Markdown文本
+                document.getElementById('markdownText').textContent = txtContent;
+                
+                // 如果是PDF文件，显示PDF预览
+                if (filename.toLowerCase().endsWith('.pdf')) {
+                    const fileData = this.uploadedFiles.find(f => f.name === filename);
+                    if (fileData) {
+                        this.showPdfPreview(fileData.file);
+                    }
+                }
+            }
+
+
+            downloadResult(filename) {
+                const result = this.results.get(filename);
+                if (result) {
+                    if (result.blob) {
+                        // 下载ZIP文件（包含所有结果）
+                        const a = document.createElement('a');
+                        const url = URL.createObjectURL(result.blob);
+                        a.href = url;
+                        a.download = result.filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    } else if (result.url) {
+                        // 旧格式：使用URL
+                        const a = document.createElement('a');
+                        a.href = result.url;
+                        a.download = result.filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                    } else {
+                        // 新格式：创建Markdown文件下载
+                        const content = result.txtContent || result.mdContent || '';
+                        const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+                        const url = URL.createObjectURL(blob);
+                        
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = result.filename || filename.replace(/\.[^/.]+$/, '') + '.md';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        
+                        URL.revokeObjectURL(url);
+                    }
+                }
+            }
+
+            downloadAllResults() {
+                if (this.results.size === 0) {
+                    alert('没有可下载的结果');
+                    return;
+                }
+                
+                // 逐个下载所有结果
+                this.results.forEach((result, filename) => {
+                    setTimeout(() => this.downloadResult(filename), 100);
+                });
+            }
+            
+
+            viewResult(filename) {
+                const result = this.results.get(filename);
+                if (result) {
+                    // 切换到Markdown rendering标签页
+                    this.switchToTab('markdown-rendering');
+                    
+                    if (result.type === 'json' || result.type === 'zip') {
+                        // 新格式：直接使用存储的内容
+                        const mdContent = result.mdContent || '';
+                        const txtContent = result.txtContent || '';
+                        
+                        // 显示渲染后的Markdown
+                        document.getElementById('markdownPreview').innerHTML = 
+                            `<div class="markdown-content">${this.markdownToHtml(mdContent)}</div>`;
+                        // 显示原始Markdown文本
+                        document.getElementById('markdownText').textContent = txtContent;
+                    } else {
+                        // 旧格式：从blob读取
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            const content = e.target.result;
+                            // 显示渲染后的Markdown
+                            document.getElementById('markdownPreview').innerHTML = 
+                                `<div class="markdown-content">${this.markdownToHtml(content)}</div>`;
+                            // 显示原始Markdown文本
+                            document.getElementById('markdownText').textContent = content;
+                        };
+                        reader.readAsText(result.blob);
+                    }
+                    
+                    // 如果是PDF文件，显示PDF预览
+                    if (filename.toLowerCase().endsWith('.pdf')) {
+                        const fileData = this.uploadedFiles.find(f => f.name === filename);
+                        if (fileData) {
+                            this.showPdfPreview(fileData.file);
+                        }
+                    }
+                }
+            }
+
+            showProcessingPreview(fileData) {
+                // 切换到Markdown rendering标签页
+                this.switchToTab('markdown-rendering');
+                
+                // 显示处理中的预览
+                const processingContent = `# 正在处理文件
+
+## 📄 ${fileData.name}
+
+**状态**: ⚙️ 处理中  
+**进度**: 正在转换中，请稍候...
+
+---
+
+### 处理信息
+- **文件名**: ${fileData.name}
+- **文件大小**: ${this.formatFileSize(fileData.size)}
+- **开始时间**: ${new Date().toLocaleString()}
+- **处理状态**: 正在OCR识别和格式转换
+
+> 💡 **提示**: 处理时间取决于文件大小和复杂度，请耐心等待。
+
+---
+
+<div style="text-align: center; margin: 20px 0;">
+    <div style="display: inline-block; padding: 10px 20px; background: #f0f8ff; border: 1px solid #4a90e2; border-radius: 8px;">
+        <div style="font-size: 24px; margin-bottom: 10px;">⚙️</div>
+        <div style="color: #4a90e2; font-weight: bold;">正在处理中...</div>
+                        </div>
+                    </div>`;
+
+                document.getElementById('markdownPreview').innerHTML = 
+                    `<div class="markdown-content">${this.markdownToHtml(processingContent)}</div>`;
+                document.getElementById('markdownText').textContent = processingContent;
+                
+                // 如果是PDF文件，显示PDF预览
+                if (fileData.name.toLowerCase().endsWith('.pdf')) {
+                    this.showPdfPreview(fileData.file);
+                }
+            }
+
+            showCompletedPreview(fileData) {
+                const result = this.results.get(fileData.name);
+                if (result) {
+                    // 切换到Markdown rendering标签页
+                    this.switchToTab('markdown-rendering');
+                    
+                    if (result.type === 'json' || result.type === 'zip') {
+                        // 新格式：直接使用存储的内容
+                        const mdContent = result.mdContent || '';
+                        const txtContent = result.txtContent || '';
+                        
+                        // 显示渲染后的Markdown
+                        document.getElementById('markdownPreview').innerHTML = 
+                            `<div class="markdown-content">${this.markdownToHtml(mdContent)}</div>`;
+                        // 显示原始Markdown文本
+                        document.getElementById('markdownText').textContent = txtContent;
+                    } else {
+                        // 旧格式：从blob读取
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            const content = e.target.result;
+                            // 显示渲染后的Markdown
+                            document.getElementById('markdownPreview').innerHTML = 
+                                `<div class="markdown-content">${this.markdownToHtml(content)}</div>`;
+                            // 显示原始Markdown文本
+                            document.getElementById('markdownText').textContent = content;
+                        };
+                        reader.readAsText(result.blob);
+                    }
+                    
+                    // 如果是PDF文件，显示PDF预览
+                    if (fileData.name.toLowerCase().endsWith('.pdf')) {
+                        this.showPdfPreview(fileData.file);
+                    }
+                }
+            }
+
+            showFirstFilePreview() {
+                if (this.uploadedFiles.length > 0) {
+                    const firstFile = this.uploadedFiles[0];
+                    // 切换到Markdown rendering标签页
+                    this.switchToTab('markdown-rendering');
+                    
+                    // 显示第一个文件的预览
+                    const filePreviewContent = `# 📁 文件已上传
+
+## ${this.getFileIcon(firstFile.name)} ${firstFile.name}
+
+**文件信息**:
+- **文件名**: ${firstFile.name}
+- **文件大小**: ${this.formatFileSize(firstFile.size)}
+- **上传时间**: ${this.formatTime(firstFile.uploadTime)}
+- **状态**: ${this.getStatusBadge(firstFile.status)}
+- **时间信息**: ${this.getTimeInfo(firstFile)}
+
+---
+
+### 下一步操作
+
+> 🚀 **准备转换**: 文件已成功上传，点击右侧的"**开始转换**"按钮开始处理文件。
+
+**转换选项**:
+- ✅ 公式识别: 已启用
+- ✅ 表格识别: 已启用
+- 📄 最大页数: ${document.getElementById('maxPages').value}页
+- 🔧 后端: ${document.getElementById('backend').value}
+
+---
+
+<div style="text-align: center; margin: 20px 0;">
+    <div style="display: inline-block; padding: 15px 25px; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 8px;">
+        <div style="font-size: 20px; margin-bottom: 8px;">📋</div>
+        <div style="color: #2e7d32; font-weight: bold;">文件准备就绪</div>
+        <div style="color: #666; font-size: 14px; margin-top: 5px;">点击开始转换按钮开始处理</div>
+    </div>
+                        </div>`;
+
+                    document.getElementById('markdownPreview').innerHTML = 
+                        `<div class="markdown-content">${this.markdownToHtml(filePreviewContent)}</div>`;
+                    document.getElementById('markdownText').textContent = filePreviewContent;
+                }
+            }
+
+            clearAll() {
+                if (this.isProcessing) {
+                    alert('转换进行中，无法清空文件列表');
+                    return;
+                }
+                
+                if (!confirm('确定要清空所有文件吗？此操作不可撤销。')) {
+                    return;
+                }
+                
+                this.uploadedFiles = [];
+                this.processingFiles.clear();
+                this.results.clear();
+                
+                // 清理URL对象
+                this.results.forEach(result => {
+                    if (result.url) {
+                        URL.revokeObjectURL(result.url);
+                    }
+                });
+                
+                this.updateFileList();
+                this.saveToStorage();
+                
+                // 清空预览
+                const defaultContent = `# 📄 MinerU PDF转换工具
+
+## 欢迎使用智能PDF文档解析与转换平台
+
+### 功能特点
+- 📄 **PDF转换**: 支持PDF文档转换为Markdown格式
+- 🖼️ **图片识别**: 支持图片文件OCR识别
+- 🧮 **公式识别**: 自动识别数学公式和化学式
+- 📊 **表格识别**: 智能识别表格结构
+- 🌐 **多语言支持**: 支持中文、英文等多种语言
+
+### 使用步骤
+1. **上传文件**: 拖拽或点击选择PDF/图片文件
+2. **配置选项**: 设置转换参数（页数、语言等）
+3. **开始转换**: 点击"开始转换"按钮
+4. **查看结果**: 在右侧查看转换后的Markdown内容
+
+---
+
+<div style="text-align: center; margin: 40px 0;">
+    <div style="display: inline-block; padding: 20px 30px; background: #f8f9fa; border: 2px dashed #dee2e6; border-radius: 12px;">
+        <div style="font-size: 48px; margin-bottom: 15px;">📁</div>
+        <div style="color: #6c757d; font-size: 18px; font-weight: bold;">请上传文件开始转换</div>
+        <div style="color: #adb5bd; font-size: 14px; margin-top: 8px;">支持PDF和图片文件</div>
+    </div>
+</div>`;
+
+                document.getElementById('markdownPreview').innerHTML = 
+                    `<div class="markdown-content">${this.markdownToHtml(defaultContent)}</div>`;
+                document.getElementById('markdownText').textContent = defaultContent;
+                
+                // 清空PDF预览
+                this.clearPdfPreview();
+            }
+
+            switchTab(e) {
+                const tabName = e.target.dataset.tab;
+                this.switchToTab(tabName, e.target);
+            }
+                
+            switchToTab(tabName, targetElement = null) {
+                // 更新标签页状态
+                document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                
+                // 如果提供了目标元素，激活它；否则找到对应的标签页
+                if (targetElement) {
+                    targetElement.classList.add('active');
+                } else {
+                    const tabElement = document.querySelector(`[data-tab="${tabName}"]`);
+                    if (tabElement) {
+                        tabElement.classList.add('active');
+                    }
+                }
+                
+                // 激活对应的内容区域
+                const contentElement = document.getElementById(tabName + 'Tab');
+                if (contentElement) {
+                    contentElement.classList.add('active');
+                }
+
+                // 如果是示例标签页，刷新列表
+                if (tabName === 'examples') {
+                    this.loadExamples();
+                }
+            }
+
+            async loadExamples() {
+                try {
+                    const response = await fetch('/list_output_files');
+                    const files = await response.json();
+                    
+                    const examplesList = document.getElementById('examplesList');
+                    examplesList.innerHTML = '';
+
+                    if (files.length === 0) {
+                        examplesList.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">输出目录为空</p>';
+                        return;
+                    }
+
+                    files.forEach(file => {
+                        const exampleItem = document.createElement('div');
+                        exampleItem.className = 'example-item';
+                        exampleItem.innerHTML = `
+                            <input type="checkbox" class="example-checkbox" data-filename="${file.name}">
+                            <div class="example-name">${file.name}</div>
+                            <div class="example-type">${file.type}</div>
+                        `;
+                        examplesList.appendChild(exampleItem);
+                    });
+                } catch (error) {
+                    console.error('加载输出文件失败:', error);
+                    document.getElementById('examplesList').innerHTML = 
+                        '<p style="text-align: center; color: #f44336; padding: 20px;">加载失败</p>';
+                }
+            }
+
+            selectAllExamples() {
+                const checkboxes = document.querySelectorAll('.example-checkbox');
+                const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+                
+                checkboxes.forEach(cb => {
+                    cb.checked = !allChecked;
+                });
+            }
+
+            async deleteSelectedExamples() {
+                const selectedFiles = Array.from(document.querySelectorAll('.example-checkbox:checked'))
+                    .map(cb => cb.dataset.filename);
+
+                if (selectedFiles.length === 0) {
+                    alert('请选择要删除的文件');
+                    return;
+                }
+
+                if (!confirm(`确定要删除选中的 ${selectedFiles.length} 个文件吗？`)) {
+                    return;
+                }
+
+                try {
+                    const response = await fetch('/delete_output_files', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ files: selectedFiles })
+                    });
+
+                    if (response.ok) {
+                        alert('删除成功');
+                        this.loadExamples();
+                    } else {
+                        throw new Error('删除失败');
+                    }
+                } catch (error) {
+                    console.error('删除文件失败:', error);
+                    alert('删除失败: ' + error.message);
+                }
+            }
+
+            formatFileSize(bytes) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            }
+
+            markdownToHtml(markdown) {
+                if (!markdown) return '';
+                
+                // 使用marked.js进行Markdown渲染
+                if (typeof marked !== 'undefined') {
+                    // 配置marked选项
+                    marked.setOptions({
+                        breaks: true,
+                        gfm: true,
+                        tables: true,
+                        sanitize: false
+                    });
+                    
+                    let html = marked.parse(markdown);
+                    
+                    // 渲染数学公式
+                    this.renderMath(html);
+                    
+                    return html;
+                } else {
+                    // 降级到简单的Markdown渲染
+                    return this.simpleMarkdownToHtml(markdown);
+                }
+            }
+            
+            renderMath(html) {
+                // 延迟渲染数学公式，确保DOM已更新
+                setTimeout(() => {
+                    if (typeof renderMathInElement !== 'undefined') {
+                        const element = document.getElementById('markdownPreview');
+                        if (element) {
+                            renderMathInElement(element, {
+                                delimiters: [
+                                    {left: '$$', right: '$$', display: true},
+                                    {left: '$', right: '$', display: false},
+                                    {left: '\\(', right: '\\)', display: false},
+                                    {left: '\\[', right: '\\]', display: true}
+                                ],
+                                throwOnError: false
+                            });
+                        }
+                    }
+                }, 100);
+            }
+            
+            simpleMarkdownToHtml(markdown) {
+                // 简单的Markdown渲染作为降级方案
+                let html = markdown;
+                
+                // 处理代码块
+                html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+                html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+                
+                // 处理标题
+                html = html.replace(/^#{6}\s+(.*)$/gm, '<h6>$1</h6>');
+                html = html.replace(/^#{5}\s+(.*)$/gm, '<h5>$1</h5>');
+                html = html.replace(/^#{4}\s+(.*)$/gm, '<h4>$1</h4>');
+                html = html.replace(/^#{3}\s+(.*)$/gm, '<h3>$1</h3>');
+                html = html.replace(/^#{2}\s+(.*)$/gm, '<h2>$1</h2>');
+                html = html.replace(/^#{1}\s+(.*)$/gm, '<h1>$1</h1>');
+                
+                // 处理其他格式
+                html = html.replace(/^[-*]{3,}$/gm, '<hr>');
+                html = html.replace(/^>\s+(.*)$/gm, '<blockquote>$1</blockquote>');
+                html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width: 100%; height: auto;">');
+                html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+                html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                html = html.replace(/__(.*?)__/g, '<strong>$1</strong>');
+                html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+                html = html.replace(/_(.*?)_/g, '<em>$1</em>');
+                html = html.replace(/~~(.*?)~~/g, '<del>$1</del>');
+                
+                return html;
+            }
+            
+            // 复制功能
+            copyMarkdown() {
+                const markdownPreview = document.getElementById('markdownPreview');
+                if (markdownPreview) {
+                    // 复制渲染后的HTML内容
+                    const htmlContent = markdownPreview.innerHTML;
+                    this.copyToClipboard(htmlContent);
+                    this.showCopySuccess('copyMarkdownBtn');
+                }
+            }
+            
+            copyText() {
+                const markdownText = document.getElementById('markdownText');
+                if (markdownText && markdownText.textContent) {
+                    this.copyToClipboard(markdownText.textContent);
+                    this.showCopySuccess('copyTextBtn');
+                }
+            }
+            
+            copyToClipboard(text) {
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(text).then(() => {
+                        console.log('复制成功');
+                    }).catch(err => {
+                        console.error('复制失败:', err);
+                        this.fallbackCopyToClipboard(text);
+                    });
+                } else {
+                    this.fallbackCopyToClipboard(text);
+                }
+            }
+            
+            fallbackCopyToClipboard(text) {
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                textArea.style.top = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                
+                try {
+                    document.execCommand('copy');
+                    console.log('复制成功');
+                } catch (err) {
+                    console.error('复制失败:', err);
+                }
+                
+                document.body.removeChild(textArea);
+            }
+            
+            showCopySuccess(buttonId) {
+                const button = document.getElementById(buttonId);
+                const originalText = button.textContent;
+                button.textContent = '✅ 已复制';
+                button.style.background = '#28a745';
+                button.style.color = 'white';
+                
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '#f6f8fa';
+                    button.style.color = '#586069';
+                }, 2000);
+            }
+
+            showPdfPreview(file) {
+                const pdfPreviewContainer = document.getElementById('pdfPreviewContainer');
+                if (!file) {
+                    this.clearPdfPreview();
+                    return;
+                }
+
+                const url = URL.createObjectURL(file);
+                pdfPreviewContainer.innerHTML = `
+                    <iframe src="${url}" 
+                            style="width: 100%; height: 400px; border: 1px solid #ddd; border-radius: 8px;"
+                            title="PDF预览">
+                    </iframe>
+                `;
+            }
+
+            clearPdfPreview() {
+                const pdfPreviewContainer = document.getElementById('pdfPreviewContainer');
+                pdfPreviewContainer.innerHTML = `
+                    <div class="pdf-preview-placeholder">
+                        <div style="font-size: 48px; margin-bottom: 15px;">📄</div>
+                        <p>PDF预览</p>
+                        <p style="font-size: 14px; color: #999;">上传PDF文件后将显示预览</p>
+                    </div>
+                `;
+            }
+        }
+
+        // 初始化应用
+        const app = new MinerUApp();
+    </script>
+</body>
+</html>
