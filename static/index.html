@@ -18,7 +18,7 @@
     <div class="container">
         <div class="header">
             <h1>MinerU PDF转换工具</h1>
-            <p>智能PDF文档解析与转换平台 <span class="version-text" onclick="app.showChangelog()" title="点击查看更新日志">v0.1.1</span></p>
+            <p>智能PDF文档解析与转换平台 <span class="version-text" onclick="app.showChangelog()" title="点击查看更新日志">v0.1.7</span></p>
         </div>
 
         <div class="main-content">
@@ -220,6 +220,7 @@
                 this.uploadedFiles = [];
                 this.processingFiles = new Set();
                 this.results = new Map();
+                this.isAutoUploading = false;
                 this.isProcessing = false;
                 this.currentProcessingIndex = -1;
                 this.loadFromStorage();
@@ -448,7 +449,7 @@
                 this.addFiles(files);
             }
 
-            addFiles(files) {
+            async addFiles(files) {
                 const validFiles = files.filter(file => {
                     const ext = file.name.toLowerCase().split('.').pop();
                     return ['pdf', 'png', 'jpg', 'jpeg', 'bmp', 'tiff'].includes(ext);
@@ -477,6 +478,19 @@
                 if (validFiles.length > 0) {
                     // 显示第一个文件的预览
                     this.showFirstFilePreview();
+                }
+
+                // 如果队列正在运行，则自动上传新加入且为待处理的文件
+                try {
+                    const qs = await this.getQueueStatus();
+                    if (qs && qs.queue_status === 'running') {
+                        await this.uploadFilesWithProgress();
+                        if (!this.globalPollingInterval) {
+                            this.startGlobalStatusPolling();
+                        }
+                    }
+                } catch (e) {
+                    console.warn('auto enqueue check failed', e);
                 }
             }
 
@@ -816,7 +830,7 @@
                 const taskIds = [];
                 
                 for (const fileData of this.uploadedFiles) {
-                        if (fileData.status === 'pending') {
+                        if (fileData.status === 'pending' && fileData.file instanceof Blob) {
                         const formData = new FormData();
                         formData.append('files', fileData.file);
                         
@@ -855,6 +869,23 @@
                 }
                 
                 return taskIds;
+            }
+
+            async autoUploadPendingIfQueueRunning() {
+                if (this.isAutoUploading) return;
+                const hasPendingWithBlob = this.uploadedFiles.some(f => f.status === 'pending' && f.file instanceof Blob);
+                if (!hasPendingWithBlob) return;
+                try {
+                    const qs = await this.getQueueStatus();
+                    if (qs && qs.queue_status === 'running') {
+                        this.isAutoUploading = true;
+                        await this.uploadFilesWithProgress();
+                    }
+                } catch (e) {
+                    console.warn('autoUploadPendingIfQueueRunning failed', e);
+                } finally {
+                    this.isAutoUploading = false;
+                }
             }
 
             async startQueue() {
@@ -918,6 +949,8 @@
                 this.globalPollingInterval = setInterval(async () => {
                     try {
                         await this.updateAllFileStatuses();
+                        // 队列运行中时，自动把新增的待处理文件上传入队
+                        await this.autoUploadPendingIfQueueRunning();
                     } catch (error) {
                         console.error('轮询所有文件状态失败:', error);
                     }
