@@ -18,10 +18,7 @@
     <div class="container">
         <div class="header">
             <h1>MinerU PDF转换工具</h1>
-            <p>智能PDF文档解析与转换平台</p>
-            <div class="version-info">
-                <span class="version-text" onclick="app.showChangelog()" title="点击查看更新日志">v0.1.1</span>
-            </div>
+            <p>智能PDF文档解析与转换平台 <span class="version-text" onclick="app.showChangelog()" title="点击查看更新日志">v0.1.1</span></p>
         </div>
 
         <div class="main-content">
@@ -830,9 +827,29 @@
             }
             
             
-            showMarkdownResult(filename, mdContent, txtContent) {
+            async showMarkdownResult(filename, mdContent = null, txtContent = null) {
                 // 切换到Markdown rendering标签页
                 this.switchToTab('markdown-rendering');
+                
+                // 如果没有提供内容，从后端API获取
+                if (!mdContent || !txtContent) {
+                    try {
+                        const response = await fetch(`/api/markdown/${encodeURIComponent(filename)}`);
+                        if (response.ok) {
+                            const data = await response.json();
+                            mdContent = data.processed_content;
+                            txtContent = data.raw_content;
+                        } else {
+                            // 如果API失败，显示错误信息
+                            mdContent = '## 错误\n\n无法加载Markdown内容';
+                            txtContent = '无法加载Markdown内容';
+                        }
+                    } catch (error) {
+                        console.error('获取Markdown内容失败:', error);
+                        mdContent = '## 错误\n\n无法加载Markdown内容';
+                        txtContent = '无法加载Markdown内容';
+                    }
+                }
                 
                 // 显示渲染后的Markdown
                 document.getElementById('markdownPreview').innerHTML = 
@@ -865,47 +882,9 @@
             }
             
 
-            viewResult(filename) {
-                const result = this.results.get(filename);
-                if (result) {
-                    // 切换到Markdown rendering标签页
-                    this.switchToTab('markdown-rendering');
-                    
-                    if (result.type === 'json' || result.type === 'zip') {
-                        // 新格式：直接使用存储的内容
-                        const mdContent = result.mdContent || '';
-                        const txtContent = result.txtContent || '';
-                        
-                        // 显示渲染后的Markdown
-                        document.getElementById('markdownPreview').innerHTML = 
-                            `<div class="markdown-content">${this.markdownToHtml(mdContent)}</div>`;
-                        // 显示原始Markdown文本
-                        document.getElementById('markdownText').textContent = txtContent;
-                    } else {
-                        // 旧格式：从blob读取
-                        const reader = new FileReader();
-                        reader.onload = (e) => {
-                            const content = e.target.result;
-                            // 显示渲染后的Markdown
-                            document.getElementById('markdownPreview').innerHTML = 
-                                `<div class="markdown-content">${this.markdownToHtml(content)}</div>`;
-                            // 显示原始Markdown文本
-                            document.getElementById('markdownText').textContent = content;
-                        };
-                        reader.readAsText(result.blob);
-                    }
-                    
-                    // 如果是PDF文件，显示PDF预览
-                    if (filename.toLowerCase().endsWith('.pdf')) {
-                        const fileData = this.uploadedFiles.find(f => f.name === filename);
-                        if (fileData) {
-                            this.showPdfPreview(fileData.file);
-                        }
-                    } else {
-                        // 清空PDF预览区域
-                        this.clearPdfPreview();
-                    }
-                }
+            async viewResult(filename) {
+                // 直接调用showMarkdownResult，它会从后端API获取最新的Markdown内容
+                await this.showMarkdownResult(filename);
             }
 
             showProcessingPreview(fileData) {
@@ -952,44 +931,9 @@
                 }
             }
 
-            showCompletedPreview(fileData) {
-                const result = this.results.get(fileData.name);
-                if (result) {
-                    // 切换到Markdown rendering标签页
-                    this.switchToTab('markdown-rendering');
-                    
-                    if (result.type === 'json' || result.type === 'zip') {
-                        // 新格式：直接使用存储的内容
-                        const mdContent = result.mdContent || '';
-                        const txtContent = result.txtContent || '';
-                        
-                        // 显示渲染后的Markdown
-                        document.getElementById('markdownPreview').innerHTML = 
-                            `<div class="markdown-content">${this.markdownToHtml(mdContent)}</div>`;
-                        // 显示原始Markdown文本
-                        document.getElementById('markdownText').textContent = txtContent;
-                    } else {
-                        // 旧格式：从blob读取
-                        const reader = new FileReader();
-                        reader.onload = (e) => {
-                            const content = e.target.result;
-                            // 显示渲染后的Markdown
-                            document.getElementById('markdownPreview').innerHTML = 
-                                `<div class="markdown-content">${this.markdownToHtml(content)}</div>`;
-                            // 显示原始Markdown文本
-                            document.getElementById('markdownText').textContent = content;
-                        };
-                        reader.readAsText(result.blob);
-                    }
-                    
-                    // 如果是PDF文件，显示PDF预览
-                    if (fileData.name.toLowerCase().endsWith('.pdf')) {
-                        this.showPdfPreview(fileData.file);
-                    } else {
-                        // 清空PDF预览区域
-                        this.clearPdfPreview();
-                    }
-                }
+            async showCompletedPreview(fileData) {
+                // 直接调用showMarkdownResult，它会从后端API获取最新的Markdown内容
+                await this.showMarkdownResult(fileData.name);
             }
 
             showFirstFilePreview() {

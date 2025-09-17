@@ -74,6 +74,33 @@ def sanitize_filename(filename: str) -> str:
         sanitized = '_' + sanitized[1:]
     return sanitized or 'unnamed'
 
+def image_to_base64(image_path: str) -> str:
+    """将图片文件转换为base64编码"""
+    try:
+        with open(image_path, 'rb') as image_file:
+            return base64.b64encode(image_file.read()).decode('utf-8')
+    except Exception as e:
+        logger.error(f"转换图片为base64失败: {e}")
+        return ""
+
+def replace_image_with_base64(markdown_text: str, image_dir_path: str) -> str:
+    """将Markdown中的图片路径替换为base64编码"""
+    # 匹配Markdown中的图片标签
+    pattern = r'\!\[(?:[^\]]*)\]\(([^)]+)\)'
+    
+    def replace(match):
+        relative_path = match.group(1)
+        full_path = os.path.join(image_dir_path, relative_path)
+        if os.path.exists(full_path):
+            base64_image = image_to_base64(full_path)
+            return f'![{relative_path}](data:image/jpeg;base64,{base64_image})'
+        else:
+            # 如果图片文件不存在，返回原始链接
+            return match.group(0)
+    
+    # 应用替换
+    return re.sub(pattern, replace, markdown_text)
+
 def cleanup_file(file_path: str) -> None:
     """清理临时文件"""
     try:
@@ -150,7 +177,7 @@ async def get_backend_options():
                 {"value": "vlm-sglang-engine", "label": "VLM SgLang Engine"}
             ]
             default_backend = "vlm-sglang-engine"
-        else:
+    else:
             backend_options = [
                 {"value": "pipeline", "label": "Pipeline"},
                 {"value": "vlm-transformers", "label": "VLM Transformers"},
@@ -168,6 +195,96 @@ async def get_backend_options():
         return JSONResponse(
             status_code=500,
             content={"error": f"获取后端选项失败: {str(e)}"}
+        )
+
+@app.get("/CHANGELOG.md")
+async def get_changelog():
+    """获取CHANGELOG.md文件内容"""
+    try:
+        changelog_path = os.path.join(os.path.dirname(__file__), "CHANGELOG.md")
+        if os.path.exists(changelog_path):
+            with open(changelog_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return HTMLResponse(content=content, media_type="text/plain; charset=utf-8")
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "CHANGELOG.md文件未找到"}
+            )
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"读取CHANGELOG失败: {str(e)}"}
+        )
+
+@app.get("/api/markdown/{filename}")
+async def get_markdown_content(filename: str):
+    """获取指定文件的Markdown内容，包括图片base64转换"""
+    try:
+        output_dir = "./output"
+        safe_filename = safe_stem(filename)
+        matching_dirs = []
+        
+        if os.path.exists(output_dir):
+            for item in os.listdir(output_dir):
+                item_path = os.path.join(output_dir, item)
+                if os.path.isdir(item_path):
+                    if item.startswith(f"temp_{safe_filename}_"):
+                        matching_dirs.append(item)
+                    elif item.startswith(f"{safe_filename}_"):
+                        matching_dirs.append(item)
+        
+        if not matching_dirs:
+            # 尝试宽松匹配
+            filename_without_ext = Path(filename).stem
+            safe_filename_loose = re.sub(r'[^\w\u4e00-\u9fff]', '_', filename_without_ext)
+            
+            for item in os.listdir(output_dir):
+                item_path = os.path.join(output_dir, item)
+                if os.path.isdir(item_path):
+                    if (f"temp_{safe_filename_loose}_" in item or 
+                        f"{safe_filename_loose}_" in item):
+                        matching_dirs.append(item)
+        
+        if not matching_dirs:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"未找到文件 {filename} 的处理结果"}
+            )
+        
+        matching_dirs.sort(reverse=True)
+        target_dir = matching_dirs[0]
+        file_path = os.path.join(output_dir, target_dir)
+        
+        # 查找Markdown文件
+        md_files = glob.glob(os.path.join(file_path, "*.md"))
+        if not md_files:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"未找到 {filename} 的Markdown文件"}
+            )
+        
+        md_file = md_files[0]
+        
+        # 读取原始Markdown内容
+        with open(md_file, 'r', encoding='utf-8') as f:
+            raw_content = f.read()
+        
+        # 转换图片为base64
+        processed_content = replace_image_with_base64(raw_content, file_path)
+        
+        return JSONResponse(content={
+            "raw_content": raw_content,
+            "processed_content": processed_content,
+            "filename": filename
+        })
+        
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"获取Markdown内容失败: {str(e)}"}
         )
 
 @app.get("/", response_class=HTMLResponse)
@@ -188,7 +305,7 @@ async def read_root():
     <title>MinerU PDF转换工具</title>
 </head>
 <body>
-    <h1>MinerU PDF转换工具</h1>
+            <h1>MinerU PDF转换工具</h1>
     <p>静态文件未找到，请检查static/index.html文件是否存在。</p>
 </body>
 </html>
@@ -500,13 +617,13 @@ async def download_file(filename: str):
                     # 检查是否包含文件名的主要部分
                     if (f"temp_{safe_filename_loose}_" in item or 
                         f"{safe_filename_loose}_" in item):
-                        matching_dirs.append(item)
-            
-            if not matching_dirs:
-                return JSONResponse(
-                    status_code=404,
-                    content={"error": f"未找到文件 {filename} 的处理结果"}
-                )
+                    matching_dirs.append(item)
+        
+        if not matching_dirs:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"未找到文件 {filename} 的处理结果"}
+            )
         
         # 如果有多个匹配的目录，选择最新的（按时间戳排序）
         matching_dirs.sort(reverse=True)
