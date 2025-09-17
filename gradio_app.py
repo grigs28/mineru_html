@@ -336,7 +336,7 @@ class TaskManager:
             self.update_task_status(task_id, TaskStatus.FAILED, 0, "处理失败", "解析过程中出现错误")
 
 # 创建FastAPI应用
-app = FastAPI(title="MinerU Web Interface", version="1.0.0")
+app = FastAPI(title="MinerU Web Interface", version="0.1.8")
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # 创建任务管理器实例
@@ -592,32 +592,35 @@ async def get_version():
 async def api_get_file_list():
     """获取服务器端共享的文件列表（用于多PC共享）。"""
     try:
-        # 从任务管理器获取所有任务信息
-        file_list = []
-        for task in task_manager.tasks.values():
-            file_info = {
-                "name": task.filename,
-                "size": 0,  # 文件大小信息可能丢失
-                "status": task.status.value,
-                "uploadTime": task.upload_time.isoformat() if task.upload_time else None,
-                "startTime": task.start_time.isoformat() if task.start_time else None,
-                "endTime": task.end_time.isoformat() if task.end_time else None,
-                "processingTime": None,
-                "taskId": task.task_id,
-                "progress": task.progress,
-                "message": task.message,
-                "errorMessage": task.error_message
-            }
-            
-            # 计算处理时间
-            if task.start_time and task.end_time:
-                duration = (task.end_time - task.start_time).total_seconds()
-                file_info["processingTime"] = duration
-            
-            file_list.append(file_info)
+        # 优先从file_list.json获取文件列表
+        file_list = load_server_file_list()
+        
+        # 如果file_list.json为空，则从任务管理器获取
+        if not file_list:
+            for task in task_manager.tasks.values():
+                file_info = {
+                    "name": task.filename,
+                    "size": 0,  # 文件大小信息可能丢失
+                    "status": task.status.value,
+                    "uploadTime": task.upload_time.isoformat() if task.upload_time else None,
+                    "startTime": task.start_time.isoformat() if task.start_time else None,
+                    "endTime": task.end_time.isoformat() if task.end_time else None,
+                    "processingTime": None,
+                    "taskId": task.task_id,
+                    "progress": task.progress,
+                    "message": task.message,
+                    "errorMessage": task.error_message
+                }
+                
+                # 计算处理时间
+                if task.start_time and task.end_time:
+                    duration = (task.end_time - task.start_time).total_seconds()
+                    file_info["processingTime"] = duration
+                
+                file_list.append(file_info)
         
         # 按上传时间排序（最新的在前）
-        file_list.sort(key=lambda x: x["uploadTime"] or "", reverse=True)
+        file_list.sort(key=lambda x: x.get("uploadTime") or "", reverse=True)
         
         return JSONResponse(content=file_list)
     except Exception as e:
@@ -636,6 +639,53 @@ async def api_set_file_list(payload: dict):
     except Exception as e:
         logger.exception(e)
         return JSONResponse(status_code=500, content={"error": f"保存文件列表失败: {str(e)}"})
+
+@app.post("/api/remove_file")
+async def api_remove_file(request: dict):
+    """删除单个文件"""
+    try:
+        filename = request.get("filename")
+        if not filename:
+            return JSONResponse(status_code=400, content={"error": "缺少文件名"})
+        
+        # 从文件列表中获取taskId并删除记录
+        current_file_list = load_server_file_list()
+        task_to_remove = None
+        updated_file_list = []
+        
+        for f in current_file_list:
+            if f.get("name") == filename:
+                task_to_remove = f.get("taskId")
+                logger.info(f"找到要删除的文件: {filename}, taskId: {task_to_remove}")
+            else:
+                updated_file_list.append(f)
+        
+        # 删除对应的输出目录
+        if task_to_remove:
+            output_dir = "./output"
+            if os.path.exists(output_dir):
+                for dir_name in os.listdir(output_dir):
+                    if dir_name.startswith(task_to_remove.replace('-', '_')):
+                        dir_path = os.path.join(output_dir, dir_name)
+                        if os.path.isdir(dir_path):
+                            import shutil
+                            shutil.rmtree(dir_path)
+                            logger.info(f"已删除输出目录: {dir_path}")
+        
+        # 从任务管理器中删除对应的任务（如果存在）
+        if task_to_remove and task_to_remove in task_manager.tasks:
+            del task_manager.tasks[task_to_remove]
+            task_manager.save_tasks()
+            logger.info(f"已从任务管理器中删除任务: {task_to_remove}")
+        
+        # 保存更新后的文件列表
+        save_server_file_list(updated_file_list)
+        
+        logger.info(f"文件 {filename} 已从列表、任务和输出目录中删除")
+        return JSONResponse(content={"ok": True, "message": f"文件 {filename} 已删除"})
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(status_code=500, content={"error": f"删除文件失败: {str(e)}"})
 
 @app.post("/api/clear_all")
 async def api_clear_all():
@@ -1056,50 +1106,76 @@ async def download_file(filename: str):
     """下载单个文件的处理结果目录（ZIP打包）"""
     try:
         output_dir = "./output"
+        target_dir = None
         
-        # 根据原始文件名查找对应的处理结果目录
-        # 实际目录格式：temp_{safe_stem}_{时间戳}
-        safe_filename = safe_stem(filename)
+        # 优先策略：从 file_list.json 中查找对应的 taskId，直接计算目录名
+        try:
+            file_list = load_server_file_list()
+            for file_info in file_list:
+                if file_info.get("name") == filename and file_info.get("taskId"):
+                    task_id = file_info["taskId"]
+                    # 计算目录名前缀：taskId 替换连字符为下划线
+                    task_id_prefix = task_id.replace('-', '_')
+                    
+                    # 在 output 目录下查找以 taskId_prefix 开头的目录
+                    if os.path.exists(output_dir):
+                        for item in os.listdir(output_dir):
+                            item_path = os.path.join(output_dir, item)
+                            if os.path.isdir(item_path) and item.startswith(task_id_prefix):
+                                target_dir = item
+                                logger.info(f"通过 taskId 找到目录: {target_dir}")
+                                break
+                    
+                    if target_dir:
+                        break
+        except Exception as e:
+            logger.warning(f"通过 taskId 查找目录失败: {e}")
         
-        # 查找匹配的目录
-        matching_dirs = []
-        if os.path.exists(output_dir):
-            for item in os.listdir(output_dir):
-                item_path = os.path.join(output_dir, item)
-                if os.path.isdir(item_path):
-                    # 检查是否匹配 temp_{safe_filename}_{timestamp} 格式
-                    if item.startswith(f"temp_{safe_filename}_"):
-                        matching_dirs.append(item)
-                    # 也检查旧的格式 {safe_filename}_{timestamp}（向后兼容）
-                    elif item.startswith(f"{safe_filename}_"):
-                        matching_dirs.append(item)
-        
-        if not matching_dirs:
-            # 如果没找到，尝试更宽松的匹配（处理中文文件名编码问题）
-            logger.info(f"未找到精确匹配，尝试宽松匹配文件名: {filename}")
-            filename_without_ext = Path(filename).stem
-            safe_filename_loose = re.sub(r'[^\w\u4e00-\u9fff]', '_', filename_without_ext)  # 保留中文字符
+        # 备用策略：使用原来的文件名匹配逻辑
+        if not target_dir:
+            logger.info(f"使用备用策略查找目录: {filename}")
+            safe_filename = safe_stem(filename)
             
-            for item in os.listdir(output_dir):
-                item_path = os.path.join(output_dir, item)
-                if os.path.isdir(item_path):
-                    # 检查是否包含文件名的主要部分
-                    if (f"temp_{safe_filename_loose}_" in item or
-                        f"{safe_filename_loose}_" in item):
-                        matching_dirs.append(item)
+            # 查找匹配的目录
+            matching_dirs = []
+            if os.path.exists(output_dir):
+                for item in os.listdir(output_dir):
+                    item_path = os.path.join(output_dir, item)
+                    if os.path.isdir(item_path):
+                        # 检查是否匹配 temp_{safe_filename}_{timestamp} 格式
+                        if item.startswith(f"temp_{safe_filename}_"):
+                            matching_dirs.append(item)
+                        # 也检查旧的格式 {safe_filename}_{timestamp}（向后兼容）
+                        elif item.startswith(f"{safe_filename}_"):
+                            matching_dirs.append(item)
+            
+            if not matching_dirs:
+                # 如果没找到，尝试更宽松的匹配（处理中文文件名编码问题）
+                logger.info(f"未找到精确匹配，尝试宽松匹配文件名: {filename}")
+                filename_without_ext = Path(filename).stem
+                safe_filename_loose = re.sub(r'[^\w\u4e00-\u9fff]', '_', filename_without_ext)  # 保留中文字符
+                
+                for item in os.listdir(output_dir):
+                    item_path = os.path.join(output_dir, item)
+                    if os.path.isdir(item_path):
+                        # 检查是否包含文件名的主要部分
+                        if (f"temp_{safe_filename_loose}_" in item or
+                            f"{safe_filename_loose}_" in item):
+                            matching_dirs.append(item)
+            
+            if matching_dirs:
+                # 如果有多个匹配的目录，选择最新的（按时间戳排序）
+                matching_dirs.sort(reverse=True)
+                target_dir = matching_dirs[0]
+                logger.info(f"通过文件名匹配找到目录: {target_dir}")
         
-        if not matching_dirs:
+        if not target_dir:
             return JSONResponse(
                 status_code=404,
                 content={"error": f"未找到文件 {filename} 的处理结果"}
             )
         
-        # 如果有多个匹配的目录，选择最新的（按时间戳排序）
-        matching_dirs.sort(reverse=True)
-        target_dir = matching_dirs[0]
         file_path = os.path.join(output_dir, target_dir)
-        
-        logger.info(f"找到匹配目录: {target_dir}")
         
         # 创建ZIP文件
         zip_path = f"{file_path}.zip"
@@ -1112,6 +1188,7 @@ async def download_file(filename: str):
                     zipf.write(file_path_full, arcname)
         
         # 返回ZIP文件
+        safe_filename = safe_stem(filename)
         return FileResponse(
             path=zip_path,
             filename=f"{safe_filename}.zip",
@@ -1159,24 +1236,43 @@ async def download_all():
                 content={"error": "输出目录不存在"}
             )
         
-        # 仅收集包含至少一个 .md 文件的目录（视为处理成功）
-        candidate_dirs = []
-        for item in os.listdir(output_dir):
-            item_path = os.path.join(output_dir, item)
-            if not os.path.isdir(item_path):
-                continue
-            has_md = False
-            for root, _, files in os.walk(item_path):
-                if any(f.lower().endswith('.md') for f in files):
-                    has_md = True
-                    break
-            if has_md:
-                candidate_dirs.append(item)
+        # 从 file_list.json 中获取已完成的任务
+        file_list = load_server_file_list()
+        completed_files = []
+        
+        for file_info in file_list:
+            if file_info.get("status") == "completed" and file_info.get("taskId"):
+                filename = file_info.get("name")
+                task_id = file_info.get("taskId")
+                
+                # 计算目录名前缀：taskId 替换连字符为下划线
+                task_id_prefix = task_id.replace('-', '_')
+                
+                # 在 output 目录下查找以 taskId_prefix 开头的目录
+                for item in os.listdir(output_dir):
+                    item_path = os.path.join(output_dir, item)
+                    if os.path.isdir(item_path) and item.startswith(task_id_prefix):
+                        # 验证目录中是否包含 .md 文件（确保处理完成）
+                        has_md = False
+                        for root, _, files in os.walk(item_path):
+                            if any(f.lower().endswith('.md') for f in files):
+                                has_md = True
+                                break
+                        
+                        if has_md:
+                            completed_files.append({
+                                "filename": filename,
+                                "task_id": task_id,
+                                "directory": item,
+                                "path": item_path
+                            })
+                            logger.info(f"找到已完成文件: {filename} -> {item}")
+                        break
 
-        if not candidate_dirs:
+        if not completed_files:
             return JSONResponse(
                 status_code=404,
-                content={"error": "没有可下载的目录"}
+                content={"error": "没有可下载的已完成文件"}
             )
         
         # 归档名：all_results_{时间戳}.zip
@@ -1186,14 +1282,15 @@ async def download_all():
         
         # 创建ZIP，保持完整相对路径（相对 output 根）
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for directory in candidate_dirs:
-                dir_path = os.path.join(output_dir, directory)
+            for file_info in completed_files:
+                dir_path = file_info["path"]
                 for root, _, files in os.walk(dir_path):
                     for file in files:
                         file_path_full = os.path.join(root, file)
                         arcname = os.path.relpath(file_path_full, output_dir)
                         zipf.write(file_path_full, arcname)
         
+        logger.info(f"成功打包 {len(completed_files)} 个已完成文件")
         return FileResponse(
             path=zip_path,
             filename=zip_filename,
@@ -1342,7 +1439,8 @@ async def download_all_selected(request: dict):
 @app.get("/output/find_pdf")
 async def find_pdf(q: str):
     """根据关键词（原始文件名或任务目录名）在 ./output 下寻找可预览的 PDF。
-    优先匹配包含关键词的目录下 auto 或 vlm 子目录中的 *_origin.pdf，其次任意 .pdf。
+    优先使用 file_list.json 中的 taskId 计算目录名，查找 目录名/auto/目录名+_origin.pdf。
+    找不到再使用原来的关键词匹配逻辑。
     返回相对 ./output 的路径，用于 /output/raw/{path} 访问。
     """
     try:
@@ -1351,6 +1449,31 @@ async def find_pdf(q: str):
             return JSONResponse(status_code=404, content={"error": "输出目录不存在"})
 
         keyword = q or ""
+        
+        # 优先策略：从 file_list.json 中查找对应的 taskId，通过前缀匹配找到目录
+        try:
+            file_list = load_server_file_list()
+            for file_info in file_list:
+                if file_info.get("name") == keyword and file_info.get("taskId"):
+                    task_id = file_info["taskId"]
+                    # 计算目录名前缀：taskId 替换连字符为下划线
+                    task_id_prefix = task_id.replace('-', '_')
+                    
+                    # 在 output 目录下查找以 taskId_prefix 开头的目录
+                    for item in os.listdir(base_dir):
+                        item_path = os.path.join(base_dir, item)
+                        if os.path.isdir(item_path) and item.startswith(task_id_prefix):
+                            # 构造预期的PDF路径：目录名/auto/目录名+_origin.pdf
+                            expected_pdf_path = os.path.join(item, "auto", f"{item}_origin.pdf")
+                            full_expected_path = os.path.join(base_dir, expected_pdf_path)
+                            
+                            if os.path.exists(full_expected_path) and os.path.isfile(full_expected_path):
+                                logger.info(f"通过 taskId 找到PDF: {expected_pdf_path}")
+                                return JSONResponse(content={"path": expected_pdf_path})
+        except Exception as e:
+            logger.warning(f"通过 taskId 查找PDF失败: {e}")
+        
+        # 备用策略：使用原来的关键词匹配逻辑
         # 同时尝试原始、safe_stem、连字符替换
         candidates = list({
             keyword,
@@ -1475,28 +1598,64 @@ async def get_task_status(task_id: str):
 async def get_task_markdown(task_id: str):
     """获取特定任务的Markdown内容"""
     try:
+        # 优先从任务管理器获取任务信息
         task = task_manager.get_task(task_id)
-        if not task:
+        task_info = None
+        
+        if task:
+            task_info = {
+                "filename": task.filename,
+                "status": task.status,
+                "result_path": task.result_path
+            }
+        else:
+            # 如果任务管理器中找不到，从 file_list.json 中查找
+            file_list = load_server_file_list()
+            for file_info in file_list:
+                if file_info.get("taskId") == task_id:
+                    # 构造任务信息
+                    task_info = {
+                        "filename": file_info.get("name"),
+                        "status": TaskStatus.COMPLETED if file_info.get("status") == "completed" else TaskStatus.PENDING,
+                        "result_path": None  # 需要根据目录结构计算
+                    }
+                    break
+        
+        if not task_info:
             return JSONResponse(
                 status_code=404,
                 content={"error": "任务不存在"}
             )
         
-        if task.status != TaskStatus.COMPLETED:
+        if task_info["status"] != TaskStatus.COMPLETED:
             return JSONResponse(
                 status_code=400,
                 content={"error": "任务尚未完成"}
             )
         
+        # 如果没有 result_path，需要根据 taskId 计算
+        result_path = task_info["result_path"]
+        if not result_path:
+            # 计算输出目录路径
+            task_id_prefix = task_id.replace('-', '_')
+            base_dir = os.path.abspath("./output")
+            
+            # 查找匹配的目录
+            for item in os.listdir(base_dir):
+                item_path = os.path.join(base_dir, item)
+                if os.path.isdir(item_path) and item.startswith(task_id_prefix):
+                    result_path = item_path
+                    break
+        
         # 获取Markdown内容
-        md_content, txt_content = await load_task_markdown_content(task.filename, task.result_path)
+        md_content, txt_content = await load_task_markdown_content(task_info["filename"], result_path)
         
         return JSONResponse(content={
             "task_id": task_id,
-            "filename": task.filename,
+            "filename": task_info["filename"],
             "md_content": md_content,
             "txt_content": txt_content,
-            "status": task.status.value
+            "status": task_info["status"].value
         })
     except Exception as e:
         logger.exception(e)

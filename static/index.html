@@ -549,16 +549,8 @@
                 const progressBar = this.getProgressBar(fileData);
                 const actions = this.getFileActions(fileData, index);
                 
-                // 构建详细的时间信息
+                // 构建状态和时间信息
                 const timeInfo = this.getTimeInfo(fileData);
-                
-                const detailInfo = `
-                    <div class="file-detail">
-                        <div class="detail-item-single">
-                            <span class="detail-value">${timeInfo}</span>
-                        </div>
-                    </div>
-                `;
                 
                 card.innerHTML = `
                     <div class="file-card-header">
@@ -570,12 +562,14 @@
                     </div>
                     <div class="file-card-body">
                         ${progressBar}
-                        ${detailInfo}
                     </div>
                     <div class="file-card-footer">
-                        <span class="file-size">${this.formatFileSize(fileData.size)}</span>
-                        <div class="file-actions">
-                            ${actions}
+                        <div class="file-info-footer">
+                            <span class="file-size">${this.formatFileSize(fileData.size)}</span>
+                            <span class="file-duration">${this.getDurationOnly(fileData)}</span>
+                            <div class="file-actions">
+                                ${actions}
+                            </div>
                         </div>
                     </div>
                 `;
@@ -622,7 +616,6 @@
                             <div class="progress-fill" style="width: ${progress}%; background: ${progressColor};"></div>
                             <span class="progress-text">${progress}%</span>
                         </div>
-                        <div class="progress-message">${fileData.message || '处理中...'}</div>
                     `;
                 } else if (status === 'completed') {
                     return `
@@ -630,7 +623,6 @@
                             <div class="progress-fill" style="width: 100%; background: #28a745;"></div>
                             <span class="progress-text">100%</span>
                         </div>
-                        <div class="progress-message">✅ 处理完成</div>
                     `;
                 } else if (status === 'error') {
                     return `
@@ -638,7 +630,6 @@
                             <div class="progress-fill" style="width: 100%; background: #dc3545;"></div>
                             <span class="progress-text">错误</span>
                         </div>
-                        <div class="progress-message">❌ ${fileData.errorMessage || '处理失败'}</div>
                     `;
                 }
                 return '';
@@ -655,8 +646,8 @@
                     ? `<button class="btn-card btn-download" onclick="app.downloadResult('${fileData.name}')">📥 下载</button>`
                     : `<button class="btn-card btn-download" disabled>📥 下载</button>`;
                 
-                // 删除按钮：始终可用
-                const deleteBtn = `<button class="btn-card btn-delete" onclick="app.removeFile(${index})">🗑️ 删除</button>`;
+                // 删除按钮：始终可用，使用文件名而不是索引
+                const deleteBtn = `<button class="btn-card btn-delete" onclick="app.removeFile('${fileData.name}')">🗑️ 删除</button>`;
                 
                 return viewBtn + downloadBtn + deleteBtn;
             }
@@ -719,24 +710,29 @@
                     case 'pending':
                         return `📤 待处理`;
                     case 'queued':
-                        // 队列阶段不展示开始时间（开始时间指进入processing的时间）
                         const queuedAt = fileData.uploadTime || fileData.upload_time;
                         return `📋 队列中 | 加入: ${queuedAt ? this.formatTimeDetail(queuedAt) : '未知'}`;
                     case 'processing':
-                        const procStartTime = fileData.startTime; // 仅使用进入processing时刻
-                        return `⚙️ 处理中 | 开始: ${procStartTime ? this.formatTimeDetail(procStartTime) : '未知'}`;
+                        return `⚙️ 处理中`;
                     case 'completed':
-                        const compStartTime = fileData.startTime; // 仅使用进入processing时刻
-                        const compEndTime = fileData.endTime;
                         const duration = this.getProcessingDuration(fileData);
-                        return `✅ 完成 | 开始: ${compStartTime ? this.formatTimeDetail(compStartTime) : '未知'} | 耗时: ${duration}`;
+                        return `✅ 完成 | 耗时: ${duration}`;
                     case 'error':
-                        const errStartTime = fileData.startTime; // 仅使用进入processing时刻
-                        const errEndTime = fileData.endTime;
                         const errDuration = this.getProcessingDuration(fileData);
-                        return `❌ 失败 | 开始: ${errStartTime ? this.formatTimeDetail(errStartTime) : '未知'} | 耗时: ${errDuration}`;
+                        return `❌ 失败 | 耗时: ${errDuration}`;
                     default:
                         return `❓ 未知状态`;
+                }
+            }
+            
+            getDurationOnly(fileData) {
+                switch (fileData.status) {
+                    case 'completed':
+                    case 'error':
+                        const duration = this.getProcessingDuration(fileData);
+                        return duration !== '未知' ? `耗时: ${duration}` : '';
+                    default:
+                        return '';
                 }
             }
             
@@ -779,8 +775,26 @@
                 return statusMap[status] || status;
             }
 
-            removeFile(index) {
-                this.uploadedFiles.splice(index, 1);
+            async removeFile(filename) {
+                // 从本地数组中删除文件
+                const index = this.uploadedFiles.findIndex(f => f.name === filename);
+                if (index !== -1) {
+                    this.uploadedFiles.splice(index, 1);
+                }
+                
+                // 同步到服务器
+                try {
+                    await fetch('/api/remove_file', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ filename: filename })
+                    });
+                } catch (e) {
+                    console.warn('同步删除到服务器失败:', e);
+                }
+                
+                // 更新本地存储和界面
+                this.saveToStorage();
                 this.updateFileList();
             }
 
@@ -855,6 +869,7 @@
 
             async uploadFilesWithProgress() {
                 const taskIds = [];
+                let lastUploadedFile = null;
                 
                 for (const fileData of this.uploadedFiles) {
                         if (fileData.status === 'pending' && fileData.file instanceof Blob) {
@@ -877,6 +892,9 @@
                                 fileData.progress = 10;
                                 fileData.message = "文件上传完成";
                                 
+                                // 记录最后一个上传的文件
+                                lastUploadedFile = fileData;
+                                
                                 // 如果队列状态是running，显示后台处理通知
                                 if (result.queue_status === 'running') {
                                     this.showBackgroundProcessingNotice();
@@ -893,6 +911,11 @@
                             fileData.status = 'error';
                         }
                     }
+                }
+                
+                // 批量上传完成后，显示最后一个文件的预览
+                if (lastUploadedFile && !this.manualViewFile) {
+                    this.showFirstFilePreview(lastUploadedFile);
                 }
                 
                 return taskIds;
@@ -1489,23 +1512,23 @@
                 await this.showMarkdownResult(fileData.name);
             }
 
-            showFirstFilePreview() {
-                if (this.uploadedFiles.length > 0) {
-                    const firstFile = this.uploadedFiles[0];
+            showFirstFilePreview(specificFile = null) {
+                const targetFile = specificFile || (this.uploadedFiles.length > 0 ? this.uploadedFiles[0] : null);
+                if (targetFile) {
                     // 切换到Markdown rendering标签页
                     this.switchToTab('markdown-rendering');
                     
-                    // 显示第一个文件的预览
+                    // 显示文件的预览
                     const filePreviewContent = `# 📁 文件已上传
 
-## ${this.getFileIcon(firstFile.name)} ${firstFile.name}
+## ${this.getFileIcon(targetFile.name)} ${targetFile.name}
 
 **文件信息**:
-- **文件名**: ${firstFile.name}
-- **文件大小**: ${this.formatFileSize(firstFile.size)}
-- **上传时间**: ${this.formatTime(firstFile.uploadTime)}
-- **状态**: ${this.getStatusBadge(firstFile.status)}
-- **时间信息**: ${this.getTimeInfo(firstFile)}
+- **文件名**: ${targetFile.name}
+- **文件大小**: ${this.formatFileSize(targetFile.size)}
+- **上传时间**: ${this.formatTime(targetFile.uploadTime)}
+- **状态**: ${this.getStatusBadge(targetFile.status)}
+- **时间信息**: ${this.getTimeInfo(targetFile)}
 
 ---
 
@@ -1534,8 +1557,8 @@
                     document.getElementById('markdownText').textContent = filePreviewContent;
                     
                     // 如果是PDF文件，显示PDF预览
-                    if (firstFile.name.toLowerCase().endsWith('.pdf') && firstFile.file instanceof Blob) {
-                        this.showPdfPreview(firstFile.file);
+                    if (targetFile.name.toLowerCase().endsWith('.pdf') && targetFile.file instanceof Blob) {
+                        this.showPdfPreview(targetFile.file);
                     } else {
                         // 清空PDF预览区域
                         this.clearPdfPreview();

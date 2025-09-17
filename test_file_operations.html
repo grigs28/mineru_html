@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件操作测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .test-result { margin: 10px 0; padding: 10px; border-radius: 3px; }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        button { padding: 8px 16px; margin: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>文件操作测试</h1>
+    
+    <div class="test-section">
+        <h3>测试1: 检查API接口</h3>
+        <button onclick="testAPI()">测试API连接</button>
+        <div id="api-result" class="test-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>测试2: 模拟文件列表操作</h3>
+        <button onclick="testFileList()">测试文件列表</button>
+        <div id="filelist-result" class="test-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>测试3: 模拟删除操作</h3>
+        <button onclick="testRemoveFile()">测试删除文件</button>
+        <div id="remove-result" class="test-result"></div>
+    </div>
+
+    <script>
+        async function testAPI() {
+            const resultDiv = document.getElementById('api-result');
+            try {
+                const response = await fetch('/api/version');
+                const data = await response.json();
+                resultDiv.className = 'test-result success';
+                resultDiv.textContent = `API连接成功: ${data.version}`;
+            } catch (error) {
+                resultDiv.className = 'test-result error';
+                resultDiv.textContent = `API连接失败: ${error.message}`;
+            }
+        }
+        
+        async function testFileList() {
+            const resultDiv = document.getElementById('filelist-result');
+            try {
+                const response = await fetch('/api/file_list');
+                const data = await response.json();
+                resultDiv.className = 'test-result success';
+                resultDiv.textContent = `文件列表获取成功: ${data.length} 个文件`;
+            } catch (error) {
+                resultDiv.className = 'test-result error';
+                resultDiv.textContent = `文件列表获取失败: ${error.message}`;
+            }
+        }
+        
+        async function testRemoveFile() {
+            const resultDiv = document.getElementById('remove-result');
+            try {
+                // 测试删除一个不存在的文件（应该返回成功，因为文件不存在）
+                const response = await fetch('/api/remove_file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: 'test_file_that_does_not_exist.pdf' })
+                });
+                const data = await response.json();
+                resultDiv.className = 'test-result success';
+                resultDiv.textContent = `删除API测试成功: ${data.message}`;
+            } catch (error) {
+                resultDiv.className = 'test-result error';
+                resultDiv.textContent = `删除API测试失败: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
