@@ -177,7 +177,7 @@ async def get_backend_options():
                 {"value": "vlm-sglang-engine", "label": "VLM SgLang Engine"}
             ]
             default_backend = "vlm-sglang-engine"
-    else:
+        else:
             backend_options = [
                 {"value": "pipeline", "label": "Pipeline"},
                 {"value": "vlm-transformers", "label": "VLM Transformers"},
@@ -617,7 +617,7 @@ async def download_file(filename: str):
                     # 检查是否包含文件名的主要部分
                     if (f"temp_{safe_filename_loose}_" in item or 
                         f"{safe_filename_loose}_" in item):
-                    matching_dirs.append(item)
+                        matching_dirs.append(item)
         
         if not matching_dirs:
             return JSONResponse(
