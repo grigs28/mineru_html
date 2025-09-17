@@ -136,6 +136,9 @@ class TaskManager:
             if status == TaskStatus.PROCESSING and task.start_time is None:
                 task.start_time = datetime.now()
             elif status in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
+                # 成功/失败时若缺少开始时间，进行兜底：优先用已有start_time，其次用upload_time，再次用当前时间
+                if task.start_time is None:
+                    task.start_time = task.upload_time or datetime.now()
                 if not task.end_time:  # 只在第一次设置结束时间
                     task.end_time = datetime.now()
             self.save_tasks()
