@@ -719,18 +719,19 @@
                     case 'pending':
                         return `📤 待处理`;
                     case 'queued':
-                        const startTime = fileData.startTime || fileData.upload_time;
-                        return `📋 队列中 | 开始: ${startTime ? this.formatTimeDetail(startTime) : '未知'}`;
+                        // 队列阶段不展示开始时间（开始时间指进入processing的时间）
+                        const queuedAt = fileData.uploadTime || fileData.upload_time;
+                        return `📋 队列中 | 加入: ${queuedAt ? this.formatTimeDetail(queuedAt) : '未知'}`;
                     case 'processing':
-                        const procStartTime = fileData.startTime || fileData.upload_time;
+                        const procStartTime = fileData.startTime; // 仅使用进入processing时刻
                         return `⚙️ 处理中 | 开始: ${procStartTime ? this.formatTimeDetail(procStartTime) : '未知'}`;
                     case 'completed':
-                        const compStartTime = fileData.startTime || fileData.upload_time;
+                        const compStartTime = fileData.startTime; // 仅使用进入processing时刻
                         const compEndTime = fileData.endTime;
                         const duration = this.getProcessingDuration(fileData);
                         return `✅ 完成 | 开始: ${compStartTime ? this.formatTimeDetail(compStartTime) : '未知'} | 耗时: ${duration}`;
                     case 'error':
-                        const errStartTime = fileData.startTime || fileData.upload_time;
+                        const errStartTime = fileData.startTime; // 仅使用进入processing时刻
                         const errEndTime = fileData.endTime;
                         const errDuration = this.getProcessingDuration(fileData);
                         return `❌ 失败 | 开始: ${errStartTime ? this.formatTimeDetail(errStartTime) : '未知'} | 耗时: ${errDuration}`;
