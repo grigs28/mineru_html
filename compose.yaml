@@ -10,6 +10,9 @@ services:
       - HOST=0.0.0.0
       - PORT=7860
       - MAX_CONVERT_PAGES=1000
+      - MINERU_VIRTUAL_VRAM_SIZE=6000
+      - MINERU_DEVICE_MODE=cuda:0
+      - ENABLE_SGLANG_ENGINE=True
     volumes:
       - /opt/mineru/web_mineru/output:/sgl-workspace/sglang/output
       - /opt/mineru/web_mineru/cli:/usr/local/lib/python3.10/dist-packages/mineru/cli
@@ -23,8 +26,8 @@ services:
     deploy:
       resources:
         limits:
-          memory: 4G
-          cpus: '2.0'
+          memory: 16G
+          cpus: '4.0'
         reservations:
-          memory: 2G
-          cpus: '1.0'
+          memory: 8G
+          cpus: '2.0'

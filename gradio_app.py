@@ -9,6 +9,7 @@ import glob
 import uuid
 import asyncio
 import json
+import gc
 from pathlib import Path
 from datetime import datetime
 from enum import Enum
@@ -240,11 +241,8 @@ class TaskManager:
             self.save_tasks()
             logger.info(f"任务 {task_id} 已加入队列")
             
-            # 如果队列正在运行，立即开始处理
-            # 如果队列空闲，启动队列
-            if self.queue_status == QueueStatus.RUNNING:
-                asyncio.create_task(self.process_queue())
-            elif self.queue_status == QueueStatus.IDLE:
+            # 如果队列空闲，启动队列（避免重复启动）
+            if self.queue_status == QueueStatus.IDLE:
                 self.start_queue()
                 asyncio.create_task(self.process_queue())
     
@@ -254,9 +252,9 @@ class TaskManager:
             while self.queue_status == QueueStatus.RUNNING:
                 next_task_id = self.get_next_task()
                 if not next_task_id:
-                    # 队列为空，停止处理
-                    self.stop_queue()
-                    break
+                    # 队列为空，等待新任务而不是停止队列
+                    await asyncio.sleep(1)
+                    continue
                 
                 self.current_processing_task = next_task_id
                 self.save_queue_status()
@@ -266,10 +264,14 @@ class TaskManager:
                 except Exception as e:
                     logger.error(f"处理任务 {next_task_id} 失败: {e}")
                     self.update_task_status(next_task_id, TaskStatus.FAILED, 0, "处理失败", str(e))
-                
-                # 处理完成后继续下一个任务
-                self.current_processing_task = None
-                self.save_queue_status()
+                finally:
+                    # 处理完成后继续下一个任务，无论成功还是失败
+                    self.current_processing_task = None
+                    self.save_queue_status()
+                    # 任务完成后清理显存
+                    cleanup_vram()
+                    # 继续处理队列中的下一个任务，即使当前任务失败
+                    pass
     
     async def process_single_task(self, task_id: str):
         """处理单个任务"""
@@ -301,6 +303,13 @@ class TaskManager:
             logger.info(f"任务 {task_id} 处理完成（模拟）")
             return
             
+        # 检查显存是否可用
+        if not check_vram_available():
+            self.update_task_status(task_id, TaskStatus.FAILED, 0, "处理失败", "显存不足，无法处理文件")
+            logger.error(f"任务 {task_id} 失败：显存不足")
+            cleanup_vram()  # 尝试清理显存
+            return
+        
         # 开始处理
         self.update_task_status(task_id, TaskStatus.PROCESSING, 30, "正在解析文件")
         
@@ -313,7 +322,7 @@ class TaskManager:
             formula_enable=True,
             table_enable=True,
             language="ch",
-            backend="pipeline",
+            backend="vlm-sglang-engine",
             url=None
         )
         
@@ -334,6 +343,9 @@ class TaskManager:
             logger.info(f"任务 {task_id} 处理完成: {file_name}")
         else:
             self.update_task_status(task_id, TaskStatus.FAILED, 0, "处理失败", "解析过程中出现错误")
+        
+        # 任务完成后清理显存
+        cleanup_vram()
 
 # 创建FastAPI应用
 app = FastAPI(title="MinerU Web Interface", version="0.1.8")
@@ -466,6 +478,42 @@ def safe_stem(file_path):
     stem = Path(file_path).stem
     # 只保留字母、数字、下划线、点和中文字符，其他字符替换为下划线
     return re.sub(r'[^\w.\u4e00-\u9fff]', '_', stem)
+
+def cleanup_vram():
+    """清理显存"""
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            logger.info("显存清理完成")
+    except ImportError:
+        logger.info("PyTorch未安装，跳过显存清理")
+
+def check_vram_available():
+    """检查显存是否可用"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            total_memory = torch.cuda.get_device_properties(0).total_memory
+            allocated_memory = torch.cuda.memory_allocated(0)
+            free_memory = total_memory - allocated_memory
+            
+            # 单GPU环境，需要至少1.5GB显存才能处理
+            required_memory = 1.5 * 1024**3
+            is_available = free_memory > required_memory
+            
+            logger.info(f"显存状态: 总计={total_memory/1024**3:.1f}GB, "
+                       f"已分配={allocated_memory/1024**3:.1f}GB, "
+                       f"可用={free_memory/1024**3:.1f}GB, "
+                       f"可用性={is_available}")
+            
+            return is_available
+    except ImportError:
+        logger.info("PyTorch未安装，假设显存可用")
+    
+    return True  # CPU模式总是可用
 
 def to_pdf(file_path):
     """将文件转换为PDF格式"""
@@ -1775,7 +1823,7 @@ async def process_tasks_background(task_ids: List[str]):
                 formula_enable=True,
                 table_enable=True,
                 language="ch",
-                backend="pipeline",
+                backend="vlm-sglang-engine",
                 url=None
             )
             
@@ -1809,7 +1857,7 @@ async def process_tasks_background(task_ids: List[str]):
     'sglang_engine_enable',
     type=bool,
     help="启用SgLang引擎后端以加快处理速度",
-    default=False,
+    default=True,
 )
 @click.option(
     '--max-convert-pages',
