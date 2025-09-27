@@ -154,6 +154,7 @@ body {
 
 .file-status.processing {
     color: #ff9800;
+    font-weight: bold;
 }
 
 .file-status.completed {
@@ -162,6 +163,12 @@ body {
 
 .file-status.error {
     color: #f44336;
+}
+
+.status-badge.processing {
+    background: #fff3e0;
+    color: #f57c00;
+    font-weight: bold;
 }
 
 .remove-file {

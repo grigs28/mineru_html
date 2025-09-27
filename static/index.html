@@ -613,12 +613,20 @@
                 const progress = fileData.progress || 0;
                 const status = fileData.status;
                 
-                if (status === 'processing' || status === 'pending' || status === 'queued') {
-                    const progressColor = status === 'queued' ? '#ffc107' : '#007bff';
+                if (status === 'processing') {
+                    const progressColor = '#007bff';
                     return `
                         <div class="progress-bar">
                             <div class="progress-fill" style="width: ${progress}%; background: ${progressColor};"></div>
                             <span class="progress-text">${progress}%</span>
+                        </div>
+                    `;
+                } else if (status === 'pending' || status === 'queued') {
+                    const progressColor = status === 'queued' ? '#ffc107' : '#007bff';
+                    return `
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: 0%; background: ${progressColor};"></div>
+                            <span class="progress-text">0%</span>
                         </div>
                     `;
                 } else if (status === 'completed') {
