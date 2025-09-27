@@ -517,15 +517,19 @@
                 if (this.uploadedFiles.length > 0 || this.results.size > 0) {
                     cardsContainer.innerHTML = '';
 
+                    // 按状态排序文件：正在处理、待处理、队列中、失败、已完成
+                    const sortedFiles = this.sortFilesByStatus(this.uploadedFiles);
+
                     // 显示上传的文件（包括已上传和正在处理的）
-                    this.uploadedFiles.forEach((fileData, index) => {
+                    sortedFiles.forEach((fileData, index) => {
                         const fileCard = this.createFileCard(fileData, index);
                         cardsContainer.appendChild(fileCard);
                     });
 
-                    // 统计数量：仅显示“文件列表中已成功”的数量（与打包一致）
+                    // 统计数量：显示“已完成/总文件数”格式
                     const completedCount = (this.uploadedFiles || []).filter(f => f && f.status === 'completed').length;
-                    if (fileCountBadge) fileCountBadge.textContent = String(completedCount);
+                    const totalCount = this.uploadedFiles.length;
+                    if (fileCountBadge) fileCountBadge.textContent = `${completedCount}/${totalCount}`;
 
                 } else {
                     // 显示空状态
@@ -1834,6 +1838,34 @@
                     console.error('删除文件失败:', error);
                     alert('删除失败: ' + error.message);
                 }
+            }
+
+            /**
+             * 按照指定顺序对文件进行排序：正在处理、待处理、队列中、失败、已完成
+             */
+            sortFilesByStatus(files) {
+                // 定义排序优先级
+                const statusPriority = {
+                    'processing': 0,  // 正在处理
+                    'pending': 1,     // 待处理
+                    'queued': 2,      // 队列中
+                    'error': 3,       // 失败
+                    'completed': 4    // 已完成
+                };
+                
+                // 按照状态优先级排序，相同状态按文件名排序
+                return files.slice().sort((a, b) => {
+                    const priorityA = statusPriority[a.status] !== undefined ? statusPriority[a.status] : 5;
+                    const priorityB = statusPriority[b.status] !== undefined ? statusPriority[b.status] : 5;
+                    
+                    // 如果状态优先级不同，按优先级排序
+                    if (priorityA !== priorityB) {
+                        return priorityA - priorityB;
+                    }
+                    
+                    // 如果状态相同，按文件名排序
+                    return a.name.localeCompare(b.name);
+                });
             }
 
             formatFileSize(bytes) {
