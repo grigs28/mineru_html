@@ -1437,11 +1437,19 @@
 
 
             async downloadResult(filename) {
-                // 以blob下载并保存为.zip，避免浏览器直接打开URL导致展示非zip名
+                // 显示进度弹窗
+                this.showDownloadProgressModal();
+                this.updateDownloadProgress(0, `开始下载 ${filename}...`);
+                
                 try {
                     const res = await fetch(`/download_file/${encodeURIComponent(filename)}`);
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    
+                    this.updateDownloadProgress(50, `正在处理 ${filename}...`);
+                    
                     const blob = await res.blob();
+                    this.updateDownloadProgress(90, `准备下载 ${filename}...`);
+                    
                     const blobUrl = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = blobUrl;
@@ -1450,8 +1458,20 @@
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(blobUrl);
+                    
+                    this.updateDownloadProgress(100, `下载完成: ${filename}`);
+                    
+                    // 延迟隐藏进度条
+                    setTimeout(() => {
+                        this.hideDownloadProgressModal();
+                    }, 1000);
+                    
                 } catch (err) {
                     console.error('下载失败:', err);
+                    this.updateDownloadProgress(0, `下载失败: ${err.message}`);
+                    setTimeout(() => {
+                        this.hideDownloadProgressModal();
+                    }, 2000);
                     alert('下载失败，请稍后重试');
                 }
             }
