@@ -108,18 +108,16 @@ class TaskInfo:
 class TaskManager:
     def __init__(self):
         self.tasks: Dict[str, TaskInfo] = {}
-        self.task_storage_path = os.path.join("./config", "tasks.json")
         self.queue_status = QueueStatus.IDLE
         self.current_processing_task = None
         self.processing_lock = asyncio.Lock()
-        self.load_tasks()
-        self.load_queue_status()
+        # 移除文件持久化，使用内存状态管理
         
     def create_task(self, filename: str) -> str:
         task_id = str(uuid.uuid4())
         task = TaskInfo(task_id, filename, datetime.now())
         self.tasks[task_id] = task
-        self.save_tasks()
+        # 任务状态已更新，无需保存到文件
         return task_id
         
     def get_task(self, task_id: str) -> Optional[TaskInfo]:
@@ -150,7 +148,7 @@ class TaskManager:
             elif status == TaskStatus.QUEUED:
                 # 状态变为QUEUED时也同步到file_list.json
                 self.sync_task_to_file_list(task)
-            self.save_tasks()
+            # 任务状态已更新，无需保存到文件
             
     def get_all_tasks(self) -> List[Dict[str, Any]]:
         return [task.to_dict() for task in self.tasks.values()]
@@ -204,59 +202,8 @@ class TaskManager:
         except Exception as e:
             logger.warning(f"同步任务到 file_list.json 失败: {e}")
         
-    def save_tasks(self):
-        try:
-            _ensure_config_dir()
-            with open(self.task_storage_path, 'w', encoding='utf-8') as f:
-                json.dump(self.get_all_tasks(), f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning(f"保存任务列表失败: {e}")
-            
-    def load_tasks(self):
-        try:
-            _ensure_config_dir()
-            if os.path.exists(self.task_storage_path):
-                with open(self.task_storage_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    for task_data in data:
-                        task = TaskInfo(task_data["task_id"], task_data["filename"], 
-                                      datetime.fromisoformat(task_data["upload_time"]))
-                        task.status = TaskStatus(task_data["status"])
-                        task.progress = task_data.get("progress", 0)
-                        task.message = task_data.get("message", "等待处理")
-                        task.start_time = datetime.fromisoformat(task_data["start_time"]) if task_data.get("start_time") else None
-                        task.end_time = datetime.fromisoformat(task_data["end_time"]) if task_data.get("end_time") else None
-                        task.result_path = task_data.get("result_path")
-                        task.error_message = task_data.get("error_message")
-                        self.tasks[task_data["task_id"]] = task
-        except Exception as e:
-            logger.warning(f"加载任务列表失败: {e}")
-    
-    def load_queue_status(self):
-        """加载队列状态"""
-        try:
-            _ensure_config_dir()
-            queue_status_path = os.path.join("./config", "queue_status.json")
-            if os.path.exists(queue_status_path):
-                with open(queue_status_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    self.queue_status = QueueStatus(data.get("status", "idle"))
-                    self.current_processing_task = data.get("current_processing_task")
-        except Exception as e:
-            logger.warning(f"加载队列状态失败: {e}")
-    
-    def save_queue_status(self):
-        """保存队列状态"""
-        try:
-            _ensure_config_dir()
-            queue_status_path = os.path.join("./config", "queue_status.json")
-            with open(queue_status_path, 'w', encoding='utf-8') as f:
-                json.dump({
-                    "status": self.queue_status.value,
-                    "current_processing_task": self.current_processing_task
-                }, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.warning(f"保存队列状态失败: {e}")
+    # 移除了文件持久化方法，使用内存状态管理
+    # 任务状态在内存中维护，重启后重新开始
     
     def get_queue_tasks(self) -> List[str]:
         """获取队列中的任务ID列表"""
@@ -278,14 +225,14 @@ class TaskManager:
         """启动队列处理"""
         if self.queue_status == QueueStatus.IDLE:
             self.queue_status = QueueStatus.RUNNING
-            self.save_queue_status()
+            # 队列状态已更新，无需保存到文件
             logger.info("任务队列已启动")
     
     def stop_queue(self):
         """停止队列处理"""
         self.queue_status = QueueStatus.IDLE
         self.current_processing_task = None
-        self.save_queue_status()
+        # 队列状态已更新，无需保存到文件
         logger.info("任务队列已停止")
     
     def add_to_queue(self, task_id: str):
@@ -295,7 +242,7 @@ class TaskManager:
             task.status = TaskStatus.QUEUED
             task.message = "已加入队列"
             # 开始时间应在进入 PROCESSING 时设置，这里不设置
-            self.save_tasks()
+            # 任务状态已更新，无需保存到文件
             logger.info(f"任务 {task_id} 已加入队列")
             
             # 如果队列空闲，启动队列（避免重复启动）
@@ -314,7 +261,7 @@ class TaskManager:
                     continue
                 
                 self.current_processing_task = next_task_id
-                self.save_queue_status()
+                # 队列状态已更新，无需保存到文件
                 
                 try:
                     await self.process_single_task(next_task_id)
@@ -324,7 +271,7 @@ class TaskManager:
                 finally:
                     # 处理完成后继续下一个任务，无论成功还是失败
                     self.current_processing_task = None
-                    self.save_queue_status()
+                    # 队列状态已更新，无需保存到文件
                     # 任务完成后清理显存
                     cleanup_vram()
                     # 继续处理队列中的下一个任务，即使当前任务失败
@@ -845,7 +792,7 @@ async def api_remove_file(request: dict):
         # 从任务管理器中删除对应的任务（如果存在）
         if task_to_remove and task_to_remove in task_manager.tasks:
             del task_manager.tasks[task_to_remove]
-            task_manager.save_tasks()
+            # 任务已删除，无需保存到文件
             logger.info(f"已从任务管理器中删除任务: {task_to_remove}")
         
         # 保存更新后的文件列表
@@ -865,8 +812,7 @@ async def api_clear_all():
         task_manager.tasks.clear()
         task_manager.current_processing_task = None
         task_manager.queue_status = QueueStatus.IDLE
-        task_manager.save_tasks()
-        task_manager.save_queue_status()
+        # 任务和队列状态已重置，无需保存到文件
         
         # 清空服务器文件列表
         save_server_file_list([])
