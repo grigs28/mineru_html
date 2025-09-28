@@ -10,6 +10,7 @@ import uuid
 import asyncio
 import json
 import gc
+import threading
 from pathlib import Path
 from datetime import datetime
 from enum import Enum
@@ -142,10 +143,61 @@ class TaskManager:
                     task.start_time = task.upload_time or datetime.now()
                 if not task.end_time:  # 只在第一次设置结束时间
                     task.end_time = datetime.now()
+                # 任务完成时同步到 file_list.json
+                self.sync_task_to_file_list(task)
             self.save_tasks()
             
     def get_all_tasks(self) -> List[Dict[str, Any]]:
         return [task.to_dict() for task in self.tasks.values()]
+    
+    def sync_task_to_file_list(self, task):
+        """将任务信息同步到 file_list.json"""
+        try:
+            # 获取当前文件列表
+            current_file_list = load_server_file_list()
+            
+            # 查找是否已存在该文件
+            file_found = False
+            for file_info in current_file_list:
+                if file_info.get("taskId") == task.task_id:
+                    # 更新现有文件信息
+                    file_info.update({
+                        "status": task.status.value,
+                        "progress": task.progress,
+                        "message": task.message,
+                        "startTime": task.start_time.isoformat() if task.start_time else None,
+                        "endTime": task.end_time.isoformat() if task.end_time else None,
+                        "processingTime": (task.end_time - task.start_time).total_seconds() if task.start_time and task.end_time else None,
+                        "errorMessage": task.error_message,
+                        "outputDir": task.result_path
+                    })
+                    file_found = True
+                    break
+            
+            # 如果没找到，添加新文件信息
+            if not file_found:
+                new_file_info = {
+                    "name": task.filename,
+                    "size": 0,  # 文件大小信息可能丢失
+                    "status": task.status.value,
+                    "uploadTime": task.upload_time.isoformat() if task.upload_time else None,
+                    "startTime": task.start_time.isoformat() if task.start_time else None,
+                    "endTime": task.end_time.isoformat() if task.end_time else None,
+                    "processingTime": (task.end_time - task.start_time).total_seconds() if task.start_time and task.end_time else None,
+                    "taskId": task.task_id,
+                    "progress": task.progress,
+                    "message": task.message,
+                    "errorMessage": task.error_message,
+                    "outputDir": task.result_path
+                }
+                current_file_list.append(new_file_info)
+            
+            # 保存更新后的文件列表
+            save_server_file_list(current_file_list)
+            logger.info(f"任务 {task.task_id} 已同步到 file_list.json")
+            
+        except Exception as e:
+            logger.warning(f"同步任务到 file_list.json 失败: {e}")
         
     def save_tasks(self):
         try:
@@ -334,13 +386,17 @@ class TaskManager:
             task.result_path = local_md_dir
             self.update_task_status(task_id, TaskStatus.COMPLETED, 100, "转换完成", None)
             
+            # 输出output目录信息
+            print(f"✅ 文件转换成功: {file_name}")
+            print(f"📁 输出目录: {local_md_dir}")
+            logger.info(f"任务 {task_id} 处理完成: {file_name}")
+            logger.info(f"输出目录: {local_md_dir}")
+            
             # 清理上传的原始文件
             try:
                 os.remove(uploaded_file)
             except:
                 pass
-            
-            logger.info(f"任务 {task_id} 处理完成: {file_name}")
         else:
             self.update_task_status(task_id, TaskStatus.FAILED, 0, "处理失败", "解析过程中出现错误")
         
@@ -367,6 +423,9 @@ BASE_DIR = os.path.dirname(__file__)
 CONFIG_DIR = os.path.join(BASE_DIR, "config")
 FILE_LIST_PATH = os.path.join(CONFIG_DIR, "file_list.json")
 
+# 文件锁，确保线程安全
+file_list_lock = threading.Lock()
+
 def _ensure_output_dir():
     os.makedirs("./output", exist_ok=True)
 
@@ -375,25 +434,27 @@ def _ensure_config_dir():
 
 def load_server_file_list() -> list:
     _ensure_config_dir()
-    if os.path.exists(FILE_LIST_PATH):
-        try:
-            import json
-            with open(FILE_LIST_PATH, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    return data
-        except Exception as e:
-            logger.warning(f"读取文件列表失败: {e}")
-    return []
+    with file_list_lock:
+        if os.path.exists(FILE_LIST_PATH):
+            try:
+                import json
+                with open(FILE_LIST_PATH, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        return data
+            except Exception as e:
+                logger.warning(f"读取文件列表失败: {e}")
+        return []
 
 def save_server_file_list(file_list: list) -> None:
     _ensure_config_dir()
-    try:
-        import json
-        with open(FILE_LIST_PATH, 'w', encoding='utf-8') as f:
-            json.dump(file_list, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        logger.warning(f"写入文件列表失败: {e}")
+    with file_list_lock:
+        try:
+            import json
+            with open(FILE_LIST_PATH, 'w', encoding='utf-8') as f:
+                json.dump(file_list, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"写入文件列表失败: {e}")
 
 def sanitize_filename(filename: str) -> str:
     """格式化压缩文件的文件名"""
@@ -657,7 +718,8 @@ async def api_get_file_list():
                     "taskId": task.task_id,
                     "progress": task.progress,
                     "message": task.message,
-                    "errorMessage": task.error_message
+                    "errorMessage": task.error_message,
+                    "outputDir": task.result_path or None  # 添加输出目录字段
                 }
                 
                 # 计算处理时间
@@ -1390,72 +1452,42 @@ async def download_all_selected(request: dict):
             # 读取失败则忽略此过滤，按原逻辑处理
             pass
 
-        # 针对每个文件名，选择该文件最新的成功目录（存在 .md）
+        # 直接从 file_list.json 中获取已完成文件的输出目录
         selected_dirs = []
-        all_dirs = [d for d in os.listdir(output_dir) if os.path.isdir(os.path.join(output_dir, d))]
-
-        # 构建 name -> 完成状态下的 taskId 列表
-        name_to_completed_task_ids: dict[str, list[str]] = {}
         try:
-            for item in load_server_file_list():
-                try:
-                    if str(item.get("status")).lower() not in {"completed", "success"}:
-                        continue
-                    nm = item.get("name")
-                    tid = item.get("taskId") or item.get("task_id")
-                    if nm and tid:
-                        name_to_completed_task_ids.setdefault(nm, []).append(str(tid))
-                except Exception:
-                    continue
-        except Exception:
-            pass
-
-        for name in file_names:
-            stem = Path(name).stem
-            normalized = stem.replace('-', '_')
-            chosen = None
-
-            # 1) 先用 taskId 精确匹配（目录名前缀）
-            for tid in name_to_completed_task_ids.get(name, []) or []:
-                prefix = f"{tid}_"
-                hit = next((d for d in sorted(all_dirs, reverse=True) if d.startswith(prefix)), None)
-                if hit:
-                    chosen = hit
-                    break
-
-            # 2) 再用名称边界匹配，避免 _1 命中 _11
-            if not chosen:
-                try:
-                    exact_pattern = re.compile(rf"(^|_)({re.escape(normalized)})(_|$)", re.UNICODE)
-                except Exception:
-                    exact_pattern = None
-                if exact_pattern:
-                    candidates = [d for d in all_dirs if exact_pattern.search(d)]
-                else:
-                    candidates = [d for d in all_dirs if normalized in d]
-                candidates.sort(reverse=True)
-                for d in candidates:
-                    dir_path = os.path.join(output_dir, d)
-                    has_md = False
-                    for root, _, files in os.walk(dir_path):
-                        if any(f.lower().endswith('.md') for f in files):
-                            has_md = True
-                            break
-                    if has_md:
-                        chosen = d
-                        break
-            for d in candidates:
-                dir_path = os.path.join(output_dir, d)
-                has_md = False
-                for root, _, files in os.walk(dir_path):
-                    if any(f.lower().endswith('.md') for f in files):
-                        has_md = True
-                        break
-                if has_md:
-                    chosen = d
-                    break
-            if chosen:
-                selected_dirs.append(chosen)
+            server_list = load_server_file_list()
+            for item in server_list:
+                # 只处理状态为已完成且文件名在请求列表中的文件
+                if (str(item.get("status")).lower() in {"completed", "success"} and 
+                    item.get("name") in file_names):
+                    
+                    # 优先使用 outputDir 字段
+                    output_dir_path = item.get("outputDir")
+                    if output_dir_path and os.path.exists(output_dir_path):
+                        # 从完整路径中提取目录名
+                        dir_name = os.path.basename(output_dir_path)
+                        if os.path.isdir(os.path.join(output_dir, dir_name)):
+                            selected_dirs.append(dir_name)
+                            logger.info(f"使用 outputDir 字段找到目录: {dir_name}")
+                            continue
+                    
+                    # 如果没有 outputDir，使用 taskId 计算目录名
+                    task_id = item.get("taskId") or item.get("task_id")
+                    if task_id:
+                        task_id_prefix = task_id.replace('-', '_')
+                        # 在 output 目录下查找以 taskId_prefix 开头的目录
+                        if os.path.exists(output_dir):
+                            for item_name in os.listdir(output_dir):
+                                item_path = os.path.join(output_dir, item_name)
+                                if (os.path.isdir(item_path) and 
+                                    item_name.startswith(task_id_prefix)):
+                                    selected_dirs.append(item_name)
+                                    logger.info(f"使用 taskId 找到目录: {item_name}")
+                                    break
+        except Exception as e:
+            logger.warning(f"从 file_list.json 获取输出目录失败: {e}")
+            # 如果失败，返回空列表
+            selected_dirs = []
 
         if not selected_dirs:
             return JSONResponse(status_code=404, content={"error": "没有可下载的目录"})
@@ -1465,13 +1497,16 @@ async def download_all_selected(request: dict):
         zip_path = os.path.join(output_dir, zip_filename)
 
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for directory in selected_dirs:
+            total_dirs = len(selected_dirs)
+            for i, directory in enumerate(selected_dirs):
+                logger.info(f"正在打包目录 {i+1}/{total_dirs}: {directory}")
                 dir_path = os.path.join(output_dir, directory)
                 for root, _, files in os.walk(dir_path):
                     for file in files:
                         file_path_full = os.path.join(root, file)
                         arcname = os.path.relpath(file_path_full, output_dir)
                         zipf.write(file_path_full, arcname)
+                logger.info(f"已打包目录 {i+1}/{total_dirs}: {directory}")
 
         return FileResponse(
             path=zip_path,
@@ -1835,13 +1870,17 @@ async def process_tasks_background(task_ids: List[str]):
                 task.result_path = local_md_dir
                 task_manager.update_task_status(task_id, TaskStatus.COMPLETED, 100, "转换完成", None)
                 
+                # 输出output目录信息
+                print(f"✅ 文件转换成功: {file_name}")
+                print(f"📁 输出目录: {local_md_dir}")
+                logger.info(f"任务 {task_id} 处理完成: {file_name}")
+                logger.info(f"输出目录: {local_md_dir}")
+                
                 # 清理上传的原始文件
                 try:
                     os.remove(uploaded_file)
                 except:
                     pass
-                
-                logger.info(f"任务 {task_id} 处理完成: {file_name}")
                     
             else:
                 task_manager.update_task_status(task_id, TaskStatus.FAILED, 0, "处理失败", "解析过程中出现错误")

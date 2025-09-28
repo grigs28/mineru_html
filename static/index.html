@@ -34,8 +34,8 @@
                 <div class="form-group">
                     <label for="maxPages">最大转换页数</label>
                     <div class="slider-container">
-                        <input type="range" id="maxPages" class="slider" min="1" max="1000" value="500">
-                        <span id="maxPagesValue">500</span>
+                        <input type="range" id="maxPages" class="slider" min="1" max="2000" value="1000">
+                        <span id="maxPagesValue">1000</span>
                     </div>
                 </div>
 
@@ -290,7 +290,8 @@
                         taskId: f.taskId || null,  // 同步任务ID
                         progress: f.progress || 0,  // 同步进度
                         message: f.message || '',   // 同步消息
-                        errorMessage: f.errorMessage || null  // 同步错误信息
+                        errorMessage: f.errorMessage || null,  // 同步错误信息
+                        outputDir: f.outputDir || null  // 同步输出目录
                         }))
                     };
                     await fetch('/api/file_list', {
@@ -498,6 +499,9 @@
                 } catch (e) {
                     console.warn('auto enqueue check failed', e);
                 }
+
+                // 更新转换按钮状态
+                await this.updateConvertButtonState();
             }
 
             updateFileList() {
@@ -847,6 +851,18 @@
                     return;
                 }
 
+                // 检查队列状态
+                try {
+                    const queueStatus = await this.getQueueStatus();
+                    if (queueStatus && queueStatus.queue_status === 'running') {
+                        alert('队列正在处理中，请等待当前任务完成后再开始新的转换');
+                        return;
+                    }
+                } catch (error) {
+                    console.warn('检查队列状态失败:', error);
+                    // 如果检查失败，继续执行（避免阻塞用户操作）
+                }
+
                 this.isProcessing = true;
                 const convertBtn = document.getElementById('convertBtn');
                 convertBtn.disabled = true;
@@ -984,6 +1000,27 @@
                 return await response.json();
             }
 
+            async updateConvertButtonState() {
+                try {
+                    const queueStatus = await this.getQueueStatus();
+                    const convertBtn = document.getElementById('convertBtn');
+                    
+                    if (queueStatus && queueStatus.queue_status === 'running') {
+                        // 队列正在运行，禁用按钮
+                        convertBtn.disabled = true;
+                        convertBtn.innerHTML = '<span class="icon">⏳</span><span class="btn-text">队列处理中</span>';
+                        convertBtn.title = '队列正在处理中，请等待完成';
+                    } else {
+                        // 队列空闲，启用按钮
+                        convertBtn.disabled = false;
+                        convertBtn.innerHTML = '<span class="icon">🚀</span><span class="btn-text">开始转换</span>';
+                        convertBtn.title = '开始转换';
+                    }
+                } catch (error) {
+                    console.warn('更新转换按钮状态失败:', error);
+                }
+            }
+
             showBackgroundProcessingNotice() {
                 const notice = document.getElementById('backgroundNotice');
                 notice.style.display = 'block';
@@ -1015,6 +1052,8 @@
                         await this.autoUploadPendingIfQueueRunning();
                         // 自动预览策略：根据当前状态切换展示
                         this.autoPreviewTick();
+                        // 更新转换按钮状态
+                        await this.updateConvertButtonState();
                     } catch (error) {
                         console.error('轮询所有文件状态失败:', error);
                     }
@@ -1163,6 +1202,10 @@
                         break;
                     case 'completed':
                         fileData.status = 'completed';
+                        // 设置输出目录（从任务信息中获取）
+                        if (task.result_path) {
+                            fileData.outputDir = task.result_path;
+                        }
                         // 保存结果信息，确保查看和下载按钮可用
                         this.results.set(fileData.name, {
                             mdContent: '',
@@ -1414,35 +1457,59 @@
             }
 
             async downloadAllResults() {
-                // 收集本次任务中“已完成”的文件名
-                const completed = this.uploadedFiles
-                    .filter(f => f.status === 'completed')
-                    .map(f => f.name);
-                if (completed.length === 0) {
-                    alert('暂无已完成的文件可打包');
-                    return;
-                }
+                // 显示进度弹窗
+                this.showDownloadProgressModal();
+                
                 try {
+                    // 从服务器获取所有已完成文件的信息
+                    const fileListResponse = await fetch('/api/file_list');
+                    if (!fileListResponse.ok) {
+                        throw new Error('获取文件列表失败');
+                    }
+                    const fileList = await fileListResponse.json();
+                    
+                    // 筛选出已完成状态的文件
+                    const completedFiles = fileList.filter(f => f.status === 'completed');
+                    if (completedFiles.length === 0) {
+                        this.hideDownloadProgressModal();
+                        alert('暂无已完成的文件可打包');
+                        return;
+                    }
+                    
+                    // 更新进度：开始打包
+                    this.updateDownloadProgress(0, `开始打包 ${completedFiles.length} 个文件...`);
+                    
+                    // 调用后端下载接口
                     const res = await fetch('/download_all', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ files: completed })
+                        body: JSON.stringify({ files: completedFiles.map(f => f.name) })
                     });
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    
+                    if (!res.ok) {
+                        throw new Error(`HTTP ${res.status}`);
+                    }
+                    
+                    // 更新进度：打包完成
+                    this.updateDownloadProgress(100, '打包完成，开始下载...');
+                    
                     const blob = await res.blob();
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     const ts = this.getCurrentTimestamp();
-                    const badge = document.getElementById('fileCount');
-                    const countText = badge ? badge.textContent : String(completed.length);
                     a.href = url;
-                    a.download = `completed_${countText}_all_results_${ts}.zip`;
+                    a.download = `completed_${completedFiles.length}_all_results_${ts}.zip`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
+                    
+                    // 隐藏进度弹窗
+                    this.hideDownloadProgressModal();
+                    
                 } catch (e) {
                     console.error('全部下载失败:', e);
+                    this.hideDownloadProgressModal();
                     alert('全部下载失败，请稍后重试');
                 }
             }
@@ -1473,6 +1540,72 @@
                     console.error('获取Markdown内容失败:', error);
                     alert('获取Markdown内容失败，请稍后重试');
                 }
+            }
+
+            // 显示下载进度弹窗
+            showDownloadProgressModal() {
+                // 创建进度弹窗HTML
+                const modalHtml = `
+                    <div id="downloadProgressModal" class="download-progress-modal">
+                        <div class="download-progress-content">
+                            <div class="download-progress-header">
+                                <h3>📦 正在打包下载</h3>
+                                <button class="close-btn" onclick="app.hideDownloadProgressModal()">×</button>
+                            </div>
+                            <div class="download-progress-body">
+                                <div class="progress-info">
+                                    <div class="progress-text" id="downloadProgressText">准备中...</div>
+                                    <div class="progress-percentage" id="downloadProgressPercent">0%</div>
+                                </div>
+                                <div class="progress-bar-container">
+                                    <div class="progress-bar-fill" id="downloadProgressBar" style="width: 0%"></div>
+                                </div>
+                                <div class="progress-details" id="downloadProgressDetails">
+                                    <div class="detail-item">
+                                        <span class="detail-label">正在打包:</span>
+                                        <span class="detail-value" id="currentDir">-</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">已打包目录数:</span>
+                                        <span class="detail-value" id="packedCount">0</span>
+                                    </div>
+                                    <div class="detail-item">
+                                        <span class="detail-label">总目录数:</span>
+                                        <span class="detail-value" id="totalCount">0</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // 添加到页面
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+            }
+
+            // 隐藏下载进度弹窗
+            hideDownloadProgressModal() {
+                const modal = document.getElementById('downloadProgressModal');
+                if (modal) {
+                    modal.remove();
+                }
+            }
+
+            // 更新下载进度
+            updateDownloadProgress(percentage, message, details = {}) {
+                const progressText = document.getElementById('downloadProgressText');
+                const progressPercent = document.getElementById('downloadProgressPercent');
+                const progressBar = document.getElementById('downloadProgressBar');
+                const currentDir = document.getElementById('currentDir');
+                const packedCount = document.getElementById('packedCount');
+                const totalCount = document.getElementById('totalCount');
+                
+                if (progressText) progressText.textContent = message;
+                if (progressPercent) progressPercent.textContent = `${Math.round(percentage)}%`;
+                if (progressBar) progressBar.style.width = `${percentage}%`;
+                if (currentDir && details.currentDir) currentDir.textContent = details.currentDir;
+                if (packedCount && details.packedCount !== undefined) packedCount.textContent = details.packedCount;
+                if (totalCount && details.totalCount !== undefined) totalCount.textContent = details.totalCount;
             }
 
             showProcessingPreview(fileData) {
