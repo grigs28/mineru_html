@@ -276,29 +276,41 @@
             }
 
             async syncFileListToServer() {
-                // 将当前文件列表推送到服务端共享
+                // 将当前文件列表推送到服务端共享（仅同步新增文件，不覆盖后端状态）
                 try {
-                    const payload = {
-                        files: this.uploadedFiles.map(f => ({
-                            name: f.name,
-                            size: f.size || 0,
-                            status: f.status || 'pending',
-                            uploadTime: f.uploadTime || null,
-                            startTime: f.startTime || null,
-                            endTime: f.endTime || null,
-                        processingTime: f.processingTime || null,
-                        taskId: f.taskId || null,  // 同步任务ID
-                        progress: f.progress || 0,  // 同步进度
-                        message: f.message || '',   // 同步消息
-                        errorMessage: f.errorMessage || null,  // 同步错误信息
-                        outputDir: f.outputDir || null  // 同步输出目录
-                        }))
-                    };
-                    await fetch('/api/file_list', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
+                    // 先获取服务端的文件列表
+                    const res = await fetch('/api/file_list');
+                    if (!res.ok) return;
+                    const serverFiles = await res.json();
+                    
+                    // 找出需要同步的新文件（服务端没有的）
+                    const serverFileNames = new Set(serverFiles.map(f => f.name));
+                    const newFiles = this.uploadedFiles.filter(f => !serverFileNames.has(f.name));
+                    
+                    if (newFiles.length > 0) {
+                        const payload = {
+                            files: newFiles.map(f => ({
+                                name: f.name,
+                                size: f.size || 0,
+                                status: f.status || 'pending',
+                                uploadTime: f.uploadTime || null,
+                                startTime: f.startTime || null,
+                                endTime: f.endTime || null,
+                                processingTime: f.processingTime || null,
+                                taskId: f.taskId || null,
+                                progress: f.progress || 0,
+                                message: f.message || '',
+                                errorMessage: f.errorMessage || null,
+                                outputDir: f.outputDir || null
+                            }))
+                        };
+                        await fetch('/api/file_list', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        console.log(`同步了 ${newFiles.length} 个新文件到服务端`);
+                    }
                 } catch (e) {
                     console.warn('syncFileListToServer failed', e);
                 }
