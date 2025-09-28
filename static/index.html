@@ -1939,32 +1939,47 @@
             }
 
             async downloadAllOutputs() {
+                // 获取用户选择的文件
+                const selectedCheckboxes = document.querySelectorAll('.example-checkbox:checked');
+                if (selectedCheckboxes.length === 0) {
+                    alert('请先选择要下载的输出文件');
+                    return;
+                }
+                
+                const selectedFiles = Array.from(selectedCheckboxes).map(cb => cb.dataset.filename);
+                
                 // 显示进度弹窗
                 this.showDownloadProgressModal();
-                this.updateDownloadProgress(0, '开始打包所有输出文件...');
+                this.updateDownloadProgress(0, `开始打包 ${selectedFiles.length} 个选择的输出文件...`);
                 
                 try {
-                    this.updateDownloadProgress(30, '正在获取输出文件列表...');
+                    this.updateDownloadProgress(30, '正在获取选择的文件列表...');
                     
-                    const res = await fetch('/download_all');
+                    // 使用POST接口，传递选择的文件列表
+                    const res = await fetch('/download_all', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ files: selectedFiles })
+                    });
+                    
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     
-                    this.updateDownloadProgress(60, '正在打包输出文件...');
+                    this.updateDownloadProgress(60, '正在打包选择的输出文件...');
                     
                     const blob = await res.blob();
-                    this.updateDownloadProgress(90, '准备下载输出文件...');
+                    this.updateDownloadProgress(90, '准备下载选择的输出文件...');
                     
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     const ts = this.getCurrentTimestamp();
                     a.href = url;
-                    a.download = `all_outputs_${ts}.zip`;
+                    a.download = `selected_outputs_${ts}.zip`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
                     
-                    this.updateDownloadProgress(100, '输出文件下载完成');
+                    this.updateDownloadProgress(100, '选择的输出文件下载完成');
                     
                     // 延迟隐藏进度条
                     setTimeout(() => {
@@ -1972,12 +1987,12 @@
                     }, 1000);
                     
                 } catch (e) {
-                    console.error('打包全部输出失败:', e);
+                    console.error('打包选择的输出失败:', e);
                     this.updateDownloadProgress(0, `打包失败: ${e.message}`);
                     setTimeout(() => {
                         this.hideDownloadProgressModal();
                     }, 2000);
-                    alert('打包全部输出失败，请稍后重试');
+                    alert('打包选择的输出失败，请稍后重试');
                 }
             }
 

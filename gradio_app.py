@@ -1429,65 +1429,49 @@ async def download_all_selected(request: dict):
         if not isinstance(file_names, list) or not file_names:
             return JSONResponse(status_code=400, content={"error": "缺少待打包文件列表"})
 
-        # 对照 config/file_list.json，仅保留已完成的文件名
-        try:
-            server_list = load_server_file_list()
-            completed_names = [f.get("name") for f in server_list if str(f.get("status")).lower() in {"completed", "success"}]
-            completed_set = {n for n in completed_names if n}
-            # 同时按“规范化stem”匹配，避免扩展名或连字符差异导致遗漏
-            def norm_stem(name: str) -> str:
-                s = Path(name).stem
-                return s.replace('-', '_')
-            completed_stem_set = {norm_stem(n) for n in completed_set}
-            if completed_set:
-                filtered = []
-                for n in file_names:
-                    if n in completed_set:
-                        filtered.append(n)
-                        continue
-                    if norm_stem(n) in completed_stem_set:
-                        filtered.append(n)
-                file_names = filtered
-        except Exception as _:
-            # 读取失败则忽略此过滤，按原逻辑处理
-            pass
+        # 直接使用用户选择的文件，不检测状态
+        # 注释掉状态检测逻辑，允许下载任何选择的文件
 
-        # 直接从 file_list.json 中获取已完成文件的输出目录
+        # 直接在输出目录中查找用户选择的文件对应的目录
         selected_dirs = []
-        try:
-            server_list = load_server_file_list()
-            for item in server_list:
-                # 只处理状态为已完成且文件名在请求列表中的文件
-                if (str(item.get("status")).lower() in {"completed", "success"} and 
-                    item.get("name") in file_names):
-                    
-                    # 优先使用 outputDir 字段
-                    output_dir_path = item.get("outputDir")
-                    if output_dir_path and os.path.exists(output_dir_path):
-                        # 从完整路径中提取目录名
-                        dir_name = os.path.basename(output_dir_path)
-                        if os.path.isdir(os.path.join(output_dir, dir_name)):
-                            selected_dirs.append(dir_name)
-                            logger.info(f"使用 outputDir 字段找到目录: {dir_name}")
-                            continue
-                    
-                    # 如果没有 outputDir，使用 taskId 计算目录名
-                    task_id = item.get("taskId") or item.get("task_id")
-                    if task_id:
-                        task_id_prefix = task_id.replace('-', '_')
-                        # 在 output 目录下查找以 taskId_prefix 开头的目录
-                        if os.path.exists(output_dir):
-                            for item_name in os.listdir(output_dir):
-                                item_path = os.path.join(output_dir, item_name)
-                                if (os.path.isdir(item_path) and 
-                                    item_name.startswith(task_id_prefix)):
-                                    selected_dirs.append(item_name)
-                                    logger.info(f"使用 taskId 找到目录: {item_name}")
-                                    break
-        except Exception as e:
-            logger.warning(f"从 file_list.json 获取输出目录失败: {e}")
-            # 如果失败，返回空列表
-            selected_dirs = []
+        
+        # 方法1: 直接匹配文件名
+        if os.path.exists(output_dir):
+            for item_name in os.listdir(output_dir):
+                item_path = os.path.join(output_dir, item_name)
+                if os.path.isdir(item_path):
+                    # 检查目录名是否包含用户选择的文件名
+                    for filename in file_names:
+                        # 移除文件扩展名进行匹配
+                        file_stem = Path(filename).stem
+                        if (item_name == filename or 
+                            file_stem in item_name or 
+                            item_name.startswith(file_stem)):
+                            selected_dirs.append(item_name)
+                            logger.info(f"直接匹配找到目录: {item_name} (对应文件: {filename})")
+                            break
+        
+        # 方法2: 通过file_list.json查找对应的taskId目录（作为备用）
+        if not selected_dirs:
+            try:
+                server_list = load_server_file_list()
+                for filename in file_names:
+                    for item in server_list:
+                        if item.get("name") == filename:
+                            task_id = item.get("taskId") or item.get("task_id")
+                            if task_id:
+                                task_id_prefix = task_id.replace('-', '_')
+                                if os.path.exists(output_dir):
+                                    for item_name in os.listdir(output_dir):
+                                        item_path = os.path.join(output_dir, item_name)
+                                        if (os.path.isdir(item_path) and 
+                                            item_name.startswith(task_id_prefix)):
+                                            selected_dirs.append(item_name)
+                                            logger.info(f"通过taskId找到目录: {item_name} (对应文件: {filename})")
+                                            break
+                            break
+            except Exception as e:
+                logger.warning(f"通过file_list.json查找目录失败: {e}")
 
         if not selected_dirs:
             return JSONResponse(status_code=404, content={"error": "没有可下载的目录"})
