@@ -137,6 +137,8 @@ class TaskManager:
                 task.error_message = error_message
             if status == TaskStatus.PROCESSING and task.start_time is None:
                 task.start_time = datetime.now()
+                # 状态变为PROCESSING时同步到file_list.json
+                self.sync_task_to_file_list(task)
             elif status in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
                 # 成功/失败时若缺少开始时间，进行兜底：优先用已有start_time，其次用upload_time，再次用当前时间
                 if task.start_time is None:
@@ -144,6 +146,9 @@ class TaskManager:
                 if not task.end_time:  # 只在第一次设置结束时间
                     task.end_time = datetime.now()
                 # 任务完成时同步到 file_list.json
+                self.sync_task_to_file_list(task)
+            elif status == TaskStatus.QUEUED:
+                # 状态变为QUEUED时也同步到file_list.json
                 self.sync_task_to_file_list(task)
             self.save_tasks()
             
