@@ -632,18 +632,58 @@ async def parse_pdf(doc_path, output_dir, end_page_id, is_ocr, formula_enable, t
             await progress_callback(50, "正在处理PDF内容，请稍候...")
             await asyncio.sleep(0.1)
         
-        await aio_do_parse(
-            output_dir=output_dir,
-            pdf_file_names=[file_name],
-            pdf_bytes_list=[pdf_data],
-            p_lang_list=[language],
-            parse_method=parse_method,
-            end_page_id=end_page_id,
-            formula_enable=formula_enable,
-            table_enable=table_enable,
-            backend=backend,
-            server_url=url,
-        )
+        # 启动进度模拟器
+        async def progress_simulator():
+            """模拟进度更新，让用户看到处理正在进行"""
+            progress = 50
+            while progress < 65:  # 最多到65%
+                await asyncio.sleep(2)  # 每2秒更新一次
+                progress += 2
+                if progress_callback:
+                    await progress_callback(progress, f"正在处理PDF内容... ({progress}%)")
+        
+        # 同时运行处理任务和进度模拟器
+        if progress_callback:
+            # 创建进度模拟任务
+            progress_task = asyncio.create_task(progress_simulator())
+            
+            # 运行实际处理任务
+            parse_task = asyncio.create_task(aio_do_parse(
+                output_dir=output_dir,
+                pdf_file_names=[file_name],
+                pdf_bytes_list=[pdf_data],
+                p_lang_list=[language],
+                parse_method=parse_method,
+                end_page_id=end_page_id,
+                formula_enable=formula_enable,
+                table_enable=table_enable,
+                backend=backend,
+                server_url=url,
+            ))
+            
+            # 等待处理完成
+            await parse_task
+            
+            # 取消进度模拟器
+            progress_task.cancel()
+            try:
+                await progress_task
+            except asyncio.CancelledError:
+                pass
+        else:
+            # 如果没有进度回调，直接运行处理
+            await aio_do_parse(
+                output_dir=output_dir,
+                pdf_file_names=[file_name],
+                pdf_bytes_list=[pdf_data],
+                p_lang_list=[language],
+                parse_method=parse_method,
+                end_page_id=end_page_id,
+                formula_enable=formula_enable,
+                table_enable=table_enable,
+                backend=backend,
+                server_url=url,
+            )
         
         # 更新进度：处理完成
         if progress_callback:
