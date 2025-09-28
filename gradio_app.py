@@ -636,10 +636,10 @@ async def parse_pdf(doc_path, output_dir, end_page_id, is_ocr, formula_enable, t
         async def progress_simulator():
             """模拟进度更新，让用户看到处理正在进行"""
             progress = 50
-            while progress <= 64:  # 最多到64%
+            while progress <= 90:  # 模拟到90%
                 await asyncio.sleep(2)  # 每2秒更新一次
                 progress += 2
-                if progress_callback and progress <= 64:  # 确保不超过64%
+                if progress_callback and progress <= 90:  # 确保不超过90%
                     await progress_callback(progress, f"正在处理PDF内容... ({progress}%)")
         
         # 同时运行处理任务和进度模拟器
@@ -687,7 +687,7 @@ async def parse_pdf(doc_path, output_dir, end_page_id, is_ocr, formula_enable, t
         
         # 更新进度：处理完成
         if progress_callback:
-            await progress_callback(70, "PDF解析完成，生成输出文件")
+            await progress_callback(95, "PDF解析完成，生成输出文件")
         
         return local_md_dir, file_name
     except Exception as e:
