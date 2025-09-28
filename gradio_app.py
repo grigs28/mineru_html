@@ -370,6 +370,12 @@ class TaskManager:
         # 开始处理
         self.update_task_status(task_id, TaskStatus.PROCESSING, 30, "正在解析文件")
         
+        # 定义进度回调函数
+        async def update_progress(progress, message):
+            self.update_task_status(task_id, TaskStatus.PROCESSING, progress, message)
+            # 添加日志记录进度更新
+            logger.info(f"任务 {task_id} 进度更新: {progress}% - {message}")
+        
         # 使用现有的parse_pdf函数进行处理
         result = await parse_pdf(
             doc_path=uploaded_file,
@@ -380,7 +386,8 @@ class TaskManager:
             table_enable=True,
             language="ch",
             backend="vlm-sglang-engine",
-            url=None
+            url=None,
+            progress_callback=update_progress
         )
         
         if result:
@@ -598,7 +605,7 @@ def to_pdf(file_path):
     
     return tmp_file_path
 
-async def parse_pdf(doc_path, output_dir, end_page_id, is_ocr, formula_enable, table_enable, language, backend, url):
+async def parse_pdf(doc_path, output_dir, end_page_id, is_ocr, formula_enable, table_enable, language, backend, url, progress_callback=None):
     """解析PDF文件，采用与sample文件相同的转换方法"""
     os.makedirs(output_dir, exist_ok=True)
 
@@ -614,6 +621,17 @@ async def parse_pdf(doc_path, output_dir, end_page_id, is_ocr, formula_enable, t
             parse_method = "vlm"
 
         local_image_dir, local_md_dir = prepare_env(output_dir, file_name, parse_method)
+        
+        # 更新进度：开始处理
+        if progress_callback:
+            await progress_callback(40, "开始解析PDF内容")
+            await asyncio.sleep(0.1)  # 短暂延迟让进度更新可见
+        
+        # 更新进度：正在处理
+        if progress_callback:
+            await progress_callback(50, "正在处理PDF内容，请稍候...")
+            await asyncio.sleep(0.1)
+        
         await aio_do_parse(
             output_dir=output_dir,
             pdf_file_names=[file_name],
@@ -626,6 +644,11 @@ async def parse_pdf(doc_path, output_dir, end_page_id, is_ocr, formula_enable, t
             backend=backend,
             server_url=url,
         )
+        
+        # 更新进度：处理完成
+        if progress_callback:
+            await progress_callback(70, "PDF解析完成，生成输出文件")
+        
         return local_md_dir, file_name
     except Exception as e:
         logger.exception(e)
@@ -1838,6 +1861,12 @@ async def process_tasks_background(task_ids: List[str]):
             # 开始处理
             task_manager.update_task_status(task_id, TaskStatus.PROCESSING, 30, "正在解析文件")
             
+            # 定义进度回调函数
+            async def update_progress(progress, message):
+                task_manager.update_task_status(task_id, TaskStatus.PROCESSING, progress, message)
+                # 添加日志记录进度更新
+                logger.info(f"任务 {task_id} 进度更新: {progress}% - {message}")
+            
             # 使用现有的parse_pdf函数进行处理
             result = await parse_pdf(
                 doc_path=uploaded_file,
@@ -1848,7 +1877,8 @@ async def process_tasks_background(task_ids: List[str]):
                 table_enable=True,
                 language="ch",
                 backend="vlm-sglang-engine",
-                url=None
+                url=None,
+                progress_callback=update_progress
             )
             
             if result:
