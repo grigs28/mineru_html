@@ -1285,6 +1285,18 @@ async def download_file(filename: str):
     """下载单个文件的处理结果目录（ZIP打包）"""
     try:
         output_dir = "./output"
+        
+        # 检查是否是完整的文件路径（用于进度接口生成的zip文件）
+        full_path = os.path.join(output_dir, filename)
+        if os.path.isfile(full_path):
+            # 直接返回该文件
+            return FileResponse(
+                path=full_path,
+                filename=os.path.basename(full_path),
+                media_type="application/zip",
+                background=BackgroundTask(lambda: os.remove(full_path))  # 下载后删除临时文件
+            )
+        
         target_dir = None
         
         # 优先策略：从 file_list.json 中查找对应的 taskId，直接计算目录名
@@ -1581,7 +1593,6 @@ async def download_all_with_progress(request: dict):
     """
     from fastapi.responses import StreamingResponse
     import json
-    from io import BytesIO
     
     try:
         output_dir = "./output"
@@ -1636,63 +1647,122 @@ async def download_all_with_progress(request: dict):
         if not selected_dirs:
             return JSONResponse(status_code=404, content={"error": "没有可下载的目录"})
 
-        # 创建一个流式响应
-        async def generate_zip():
-            # 创建内存中的ZIP文件
-            zip_buffer = BytesIO()
-            
+        # 创建一个流式响应，用于发送SSE事件
+        async def event_generator():
             total_dirs = len(selected_dirs)
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for i, directory in enumerate(selected_dirs):
-                    # 发送进度信息
+            
+            # 发送开始状态
+            progress_info = {
+                "status": "start",
+                "message": f"开始打包 {total_dirs} 个目录",
+                "current_dir": "-",
+                "packed_count": 0,
+                "total_count": total_dirs,
+                "progress": 0
+            }
+            yield f"data: {json.dumps(progress_info)}\n\n"
+
+            # 逐个打包目录
+            for i, directory in enumerate(selected_dirs):
+                logger.info(f"正在打包目录 {i+1}/{total_dirs}: {directory}")
+                
+                # 发送当前正在打包的目录信息
+                progress_info = {
+                    "status": "packing",
+                    "message": f"正在打包 {directory}",
+                    "current_dir": directory,
+                    "packed_count": i,  # 当前完成的目录数
+                    "total_count": total_dirs,
+                    "progress": int((i / total_dirs) * 100) if total_dirs > 0 else 0
+                }
+                yield f"data: {json.dumps(progress_info)}\n\n"
+                
+                # 创建临时ZIP文件
+                zip_fd, temp_zip_path = tempfile.mkstemp(suffix=".zip")
+                os.close(zip_fd)
+                
+                try:
+                    with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        dir_path = os.path.join(output_dir, directory)
+                        for root, _, files in os.walk(dir_path):
+                            for file in files:
+                                file_path_full = os.path.join(root, file)
+                                arcname = os.path.relpath(file_path_full, output_dir)
+                                zipf.write(file_path_full, arcname)
+                    
+                    # 打包当前目录完成后更新进度
                     progress_info = {
-                        "status": "packing",
+                        "status": "packed",
+                        "message": f"已打包 {directory}",
                         "current_dir": directory,
-                        "packed_count": i,
+                        "packed_count": i + 1,  # 完成的目录数加1
                         "total_count": total_dirs,
-                        "progress": int((i / total_dirs) * 100)
+                        "progress": int(((i + 1) / total_dirs) * 100) if total_dirs > 0 else 100
                     }
                     yield f"data: {json.dumps(progress_info)}\n\n"
                     
-                    logger.info(f"正在打包目录 {i+1}/{total_dirs}: {directory}")
+                finally:
+                    # 清理临时zip文件
+                    try:
+                        os.remove(temp_zip_path)
+                    except:
+                        pass  # 忽略清理错误
+
+            # 所有目录都打包完成后，开始最终的ZIP文件创建
+            progress_info = {
+                "status": "finalizing",
+                "message": "正在创建最终压缩包",
+                "current_dir": "合并文件",
+                "packed_count": total_dirs,
+                "total_count": total_dirs,
+                "progress": 95
+            }
+            yield f"data: {json.dumps(progress_info)}\n\n"
+
+            # 创建最终的ZIP文件
+            timestamp = time.strftime("%y%m%d_%H%M%S")
+            zip_filename = f"all_results_with_progress_{timestamp}.zip"
+            final_zip_path = os.path.join(output_dir, zip_filename)
+
+            with zipfile.ZipFile(final_zip_path, 'w', zipfile.ZIP_DEFLATED) as final_zip:
+                for directory in selected_dirs:
                     dir_path = os.path.join(output_dir, directory)
                     for root, _, files in os.walk(dir_path):
                         for file in files:
                             file_path_full = os.path.join(root, file)
                             arcname = os.path.relpath(file_path_full, output_dir)
-                            zipf.write(file_path_full, arcname)
-                    
-                    # 发送完成单个目录的信息
-                    progress_info = {
-                        "status": "packing",
-                        "current_dir": directory,
-                        "packed_count": i + 1,
-                        "total_count": total_dirs,
-                        "progress": int(((i + 1) / total_dirs) * 100)
-                    }
-                    yield f"data: {json.dumps(progress_info)}\n\n"
+                            final_zip.write(file_path_full, arcname)
 
-            # 最后发送ZIP文件数据
-            zip_buffer.seek(0)
-            while True:
-                chunk = zip_buffer.read(8192)
-                if not chunk:
-                    break
-                yield chunk
+            # 发送完成状态
+            progress_info = {
+                "status": "completed",
+                "message": "打包完成，准备下载",
+                "current_dir": "完成",
+                "packed_count": total_dirs,
+                "total_count": total_dirs,
+                "progress": 100,
+                "download_path": final_zip_path  # 通过另一种方式传递文件路径
+            }
+            yield f"data: {json.dumps(progress_info)}\n\n"
 
-        # 返回流式响应
-        timestamp = time.strftime("%y%m%d_%H%M%S")
-        zip_filename = f"all_results_with_progress_{timestamp}.zip"
-        
-        return StreamingResponse(
-            generate_zip(),
-            media_type="application/zip",
-            headers={"Content-Disposition": f"attachment; filename={zip_filename}"}
-        )
+        # 返回SSE响应
+        return StreamingResponse(event_generator(), media_type="text/plain")
 
     except Exception as e:
         logger.exception(e)
-        return JSONResponse(status_code=500, content={"error": f"下载所有文件失败: {str(e)}"})
+        # 发送错误状态
+        async def error_generator():
+            error_info = {
+                "status": "error",
+                "message": f"下载失败: {str(e)}",
+                "current_dir": "-",
+                "packed_count": 0,
+                "total_count": 0,
+                "progress": 0
+            }
+            yield f"data: {json.dumps(error_info)}\n\n"
+        
+        return StreamingResponse(error_generator(), media_type="text/plain")
 
 @app.get("/output/find_pdf")
 async def find_pdf(q: str):
