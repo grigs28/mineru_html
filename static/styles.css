@@ -1915,6 +1915,7 @@ body {
     font-size: 1.1em;
     color: #333;
     font-weight: 500;
+    display: none; /* 隐藏进度文字，只显示百分比 */
 }
 
 .progress-percentage {
@@ -1968,6 +1969,19 @@ body {
     color: #333;
     font-weight: 600;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    max-width: 60%; /* 限制详情值的最大宽度 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 专门针对当前处理目录的样式 */
+#currentDir {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
 }
 
 /* 响应式设计 */
