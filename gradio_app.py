@@ -11,6 +11,7 @@ import asyncio
 import json
 import gc
 import threading
+import tempfile
 from pathlib import Path
 from datetime import datetime
 from enum import Enum
