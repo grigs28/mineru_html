@@ -1661,7 +1661,11 @@
                     }
                     
                     // 更新进度：开始打包
-                    this.updateDownloadProgress(0, `开始打包 ${completedFiles.length} 个文件...`);
+                    this.updateDownloadProgress(0, `开始打包 ${completedFiles.length} 个文件...`, {
+                        currentDir: '-',
+                        packedCount: 0,
+                        totalCount: completedFiles.length
+                    });
                     
                     // 调用后端下载接口
                     const res = await fetch('/download_all', {
@@ -1675,7 +1679,11 @@
                     }
                     
                     // 更新进度：打包完成
-                    this.updateDownloadProgress(100, '打包完成，开始下载...');
+                    this.updateDownloadProgress(95, '打包完成，开始下载...', {
+                        currentDir: '完成',
+                        packedCount: completedFiles.length,
+                        totalCount: completedFiles.length
+                    });
                     
                     const blob = await res.blob();
                     const url = URL.createObjectURL(blob);
@@ -1688,12 +1696,27 @@
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
                     
+                    this.updateDownloadProgress(100, '所有结果文件下载完成', {
+                        currentDir: '完成',
+                        packedCount: completedFiles.length,
+                        totalCount: completedFiles.length
+                    });
+                    
                     // 隐藏进度弹窗
-                    this.hideDownloadProgressModal();
+                    setTimeout(() => {
+                        this.hideDownloadProgressModal();
+                    }, 1000);
                     
                 } catch (e) {
                     console.error('全部下载失败:', e);
-                    this.hideDownloadProgressModal();
+                    this.updateDownloadProgress(0, `下载失败: ${e.message}`, {
+                        currentDir: '-',
+                        packedCount: 0,
+                        totalCount: completedFiles.length
+                    });
+                    setTimeout(() => {
+                        this.hideDownloadProgressModal();
+                    }, 2000);
                     alert('全部下载失败，请稍后重试');
                 }
             }
@@ -2114,10 +2137,18 @@
                 
                 // 显示进度弹窗
                 this.showDownloadProgressModal();
-                this.updateDownloadProgress(0, `开始打包 ${selectedFiles.length} 个选择的输出文件...`);
+                this.updateDownloadProgress(0, `开始打包 ${selectedFiles.length} 个选择的输出文件...`, {
+                    currentDir: '-',
+                    packedCount: 0,
+                    totalCount: selectedFiles.length
+                });
                 
                 try {
-                    this.updateDownloadProgress(30, '正在获取选择的文件列表...');
+                    this.updateDownloadProgress(5, '正在获取选择的文件列表...', {
+                        currentDir: '准备中',
+                        packedCount: 0,
+                        totalCount: selectedFiles.length
+                    });
                     
                     // 使用POST接口，传递选择的文件列表
                     const res = await fetch('/download_all', {
@@ -2128,11 +2159,14 @@
                     
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     
-                    this.updateDownloadProgress(60, '正在打包选择的输出文件...');
+                    // 打包完成后的进度更新
+                    this.updateDownloadProgress(95, '准备下载选择的输出文件...', {
+                        currentDir: '完成',
+                        packedCount: selectedFiles.length,
+                        totalCount: selectedFiles.length
+                    });
                     
                     const blob = await res.blob();
-                    this.updateDownloadProgress(90, '准备下载选择的输出文件...');
-                    
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     const ts = this.getCurrentTimestamp();
@@ -2143,7 +2177,11 @@
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
                     
-                    this.updateDownloadProgress(100, '选择的输出文件下载完成');
+                    this.updateDownloadProgress(100, '选择的输出文件下载完成', {
+                        currentDir: '完成',
+                        packedCount: selectedFiles.length,
+                        totalCount: selectedFiles.length
+                    });
                     
                     // 延迟隐藏进度条
                     setTimeout(() => {
@@ -2152,7 +2190,11 @@
                     
                 } catch (e) {
                     console.error('打包选择的输出失败:', e);
-                    this.updateDownloadProgress(0, `打包失败: ${e.message}`);
+                    this.updateDownloadProgress(0, `打包失败: ${e.message}`, {
+                        currentDir: '-',
+                        packedCount: 0,
+                        totalCount: selectedFiles.length
+                    });
                     setTimeout(() => {
                         this.hideDownloadProgressModal();
                     }, 2000);

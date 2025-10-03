@@ -1572,6 +1572,128 @@ async def download_all_selected(request: dict):
         logger.exception(e)
         return JSONResponse(status_code=500, content={"error": f"下载所有文件失败: {str(e)}"})
 
+
+# 新增进度追踪打包下载接口
+@app.post("/download_all_with_progress")
+async def download_all_with_progress(request: dict):
+    """按本次任务提供的文件列表打包下载（仅成功目录），支持进度反馈。
+    请求体示例: {"files": ["a.pdf", "b.pdf"]}
+    """
+    from fastapi.responses import StreamingResponse
+    import json
+    from io import BytesIO
+    
+    try:
+        output_dir = "./output"
+        if not os.path.exists(output_dir):
+            return JSONResponse(status_code=404, content={"error": "输出目录不存在"})
+
+        file_names = request.get("files", []) or []
+        if not isinstance(file_names, list) or not file_names:
+            return JSONResponse(status_code=400, content={"error": "缺少待打包文件列表"})
+
+        # 直接在输出目录中查找用户选择的文件对应的目录
+        selected_dirs = []
+        
+        # 方法1: 直接匹配文件名
+        if os.path.exists(output_dir):
+            for item_name in os.listdir(output_dir):
+                item_path = os.path.join(output_dir, item_name)
+                if os.path.isdir(item_path):
+                    # 检查目录名是否包含用户选择的文件名
+                    for filename in file_names:
+                        # 移除文件扩展名进行匹配
+                        file_stem = Path(filename).stem
+                        if (item_name == filename or 
+                            file_stem in item_name or 
+                            item_name.startswith(file_stem)):
+                            selected_dirs.append(item_name)
+                            logger.info(f"直接匹配找到目录: {item_name} (对应文件: {filename})")
+                            break
+        
+        # 方法2: 通过file_list.json查找对应的taskId目录（作为备用）
+        if not selected_dirs:
+            try:
+                server_list = load_server_file_list()
+                for filename in file_names:
+                    for item in server_list:
+                        if item.get("name") == filename:
+                            task_id = item.get("taskId") or item.get("task_id")
+                            if task_id:
+                                task_id_prefix = task_id.replace('-', '_')
+                                if os.path.exists(output_dir):
+                                    for item_name in os.listdir(output_dir):
+                                        item_path = os.path.join(output_dir, item_name)
+                                        if (os.path.isdir(item_path) and 
+                                            item_name.startswith(task_id_prefix)):
+                                            selected_dirs.append(item_name)
+                                            logger.info(f"通过taskId找到目录: {item_name} (对应文件: {filename})")
+                                            break
+                            break
+            except Exception as e:
+                logger.warning(f"通过file_list.json查找目录失败: {e}")
+
+        if not selected_dirs:
+            return JSONResponse(status_code=404, content={"error": "没有可下载的目录"})
+
+        # 创建一个流式响应
+        async def generate_zip():
+            # 创建内存中的ZIP文件
+            zip_buffer = BytesIO()
+            
+            total_dirs = len(selected_dirs)
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for i, directory in enumerate(selected_dirs):
+                    # 发送进度信息
+                    progress_info = {
+                        "status": "packing",
+                        "current_dir": directory,
+                        "packed_count": i,
+                        "total_count": total_dirs,
+                        "progress": int((i / total_dirs) * 100)
+                    }
+                    yield f"data: {json.dumps(progress_info)}\n\n"
+                    
+                    logger.info(f"正在打包目录 {i+1}/{total_dirs}: {directory}")
+                    dir_path = os.path.join(output_dir, directory)
+                    for root, _, files in os.walk(dir_path):
+                        for file in files:
+                            file_path_full = os.path.join(root, file)
+                            arcname = os.path.relpath(file_path_full, output_dir)
+                            zipf.write(file_path_full, arcname)
+                    
+                    # 发送完成单个目录的信息
+                    progress_info = {
+                        "status": "packing",
+                        "current_dir": directory,
+                        "packed_count": i + 1,
+                        "total_count": total_dirs,
+                        "progress": int(((i + 1) / total_dirs) * 100)
+                    }
+                    yield f"data: {json.dumps(progress_info)}\n\n"
+
+            # 最后发送ZIP文件数据
+            zip_buffer.seek(0)
+            while True:
+                chunk = zip_buffer.read(8192)
+                if not chunk:
+                    break
+                yield chunk
+
+        # 返回流式响应
+        timestamp = time.strftime("%y%m%d_%H%M%S")
+        zip_filename = f"all_results_with_progress_{timestamp}.zip"
+        
+        return StreamingResponse(
+            generate_zip(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={zip_filename}"}
+        )
+
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(status_code=500, content={"error": f"下载所有文件失败: {str(e)}"})
+
 @app.get("/output/find_pdf")
 async def find_pdf(q: str):
     """根据关键词（原始文件名或任务目录名）在 ./output 下寻找可预览的 PDF。
