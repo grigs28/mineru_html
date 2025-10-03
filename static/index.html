@@ -1201,6 +1201,9 @@
                         // 更新所有有任务ID的文件
                         let hasActiveTasks = false;
                         let hasProcessing = false;
+                        let hasNewProcessing = false; // 检测是否新增了处理中任务
+                        let hasCompletedTask = false; // 检测是否有任务完成
+                        
                         for (const fileData of this.uploadedFiles) {
                             if (fileData.taskId) {
                                 const task = allTasks.find(t => t.task_id === fileData.taskId);
@@ -1228,6 +1231,15 @@
                                     }
                                     if (task.status === 'processing') {
                                         hasProcessing = true;
+                                        // 检查是否是新进入处理中的任务
+                                        if (prevStatus.status !== 'processing') {
+                                            hasNewProcessing = true;
+                                        }
+                                    }
+                                    
+                                    // 检查是否有任务完成
+                                    if (prevStatus.status !== 'completed' && fileData.status === 'completed') {
+                                        hasCompletedTask = true;
                                     }
                                     
                                     // 仅当状态发生变化时，才更新对应的文件卡片
@@ -1238,20 +1250,43 @@
                             }
                         }
                         
-                        // 只有当状态发生重要变化时才更新整个列表（如统计信息）
-                        // 只有当存在活跃任务且之前没有活跃任务时才进行全列表更新
-                        // 或者当所有任务从活跃变为非活跃时更新
+                        // 检查是否有之前活跃的任务变为非活跃
                         const hasPrevActiveTasks = Array.from(prevStatusMap.values())
                             .some(s => s.status !== 'completed' && s.status !== 'failed');
                         
-                        if (hasActiveTasks !== hasPrevActiveTasks) {
-                            // 状态有重要变化时，才更新整个文件列表视图
-                            this.updateFileList();
+                        // 需要重绘整个文件列表的情况：
+                        // 1. 活跃任务状态发生变化
+                        // 2. 有任务完成（会影响统计信息和排序）
+                        // 3. 有新任务进入处理中状态（会影响排序）
+                        const needsFullListUpdate = 
+                            hasActiveTasks !== hasPrevActiveTasks || 
+                            hasCompletedTask || 
+                            hasNewProcessing;
+                        
+                        if (needsFullListUpdate) {
+                            this.updateFileList(); // 这会重新排序和显示文件卡片
                         }
                         
                         this.saveToStorage();
                         // 仅在有需要同步的新文件时才调用syncFileListToServer
                         await this.syncFileListToServer();
+                        
+                        // 如果有新进入处理中的任务，更新预览（但不自动切换）
+                        if (hasNewProcessing && !this.manualViewFile) {
+                            // 找到正在处理的文件并更新预览
+                            const processing = this.uploadedFiles.find(f => f.status === 'processing');
+                            if (processing) {
+                                this.showProcessingPreview(processing);
+                            }
+                        } else if (hasCompletedTask && !this.manualViewFile) {
+                            // 如果有任务完成且用户没有手动锁定预览，展示最新完成的文件
+                            const completed = this.uploadedFiles
+                                .filter(f => f.status === 'completed')
+                                .sort((a, b) => new Date(b.endTime || 0) - new Date(a.endTime || 0));
+                            if (completed.length > 0) {
+                                this.showMarkdownResult(completed[0].name);
+                            }
+                        }
                         
                         // 如果所有任务都已完成，停止轮询
                         if (!hasActiveTasks && this.globalPollingInterval) {
