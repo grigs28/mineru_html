@@ -1586,15 +1586,15 @@ async def download_all_selected(request: dict):
         return JSONResponse(status_code=500, content={"error": f"下载所有文件失败: {str(e)}"})
 
 
+# 用于存储打包进度的全局字典
+download_progress = {}
+
 # 新增进度追踪打包下载接口
 @app.post("/download_all_with_progress")
 async def download_all_with_progress(request: dict):
     """按本次任务提供的文件列表打包下载（仅成功目录），支持进度反馈。
     请求体示例: {"files": ["a.pdf", "b.pdf"]}
     """
-    from fastapi.responses import StreamingResponse
-    import json
-    
     try:
         output_dir = "./output"
         if not os.path.exists(output_dir):
@@ -1648,122 +1648,146 @@ async def download_all_with_progress(request: dict):
         if not selected_dirs:
             return JSONResponse(status_code=404, content={"error": "没有可下载的目录"})
 
-        # 创建一个流式响应，用于发送SSE事件
-        async def event_generator():
-            total_dirs = len(selected_dirs)
-            
-            # 发送开始状态
-            progress_info = {
-                "status": "start",
-                "message": f"开始打包 {total_dirs} 个目录",
-                "current_dir": "-",
-                "packed_count": 0,
-                "total_count": total_dirs,
-                "progress": 0
-            }
-            yield f"data: {json.dumps(progress_info)}\n\n"
+        # 生成唯一的任务ID用于跟踪进度
+        task_id = str(uuid.uuid4())
+        
+        # 初始化进度
+        download_progress[task_id] = {
+            "status": "start",
+            "message": f"开始打包 {len(selected_dirs)} 个目录",
+            "current_dir": "-",
+            "packed_count": 0,
+            "total_count": len(selected_dirs),
+            "progress": 0
+        }
+        
+        # 创建最终的ZIP文件
+        timestamp = time.strftime("%y%m%d_%H%M%S")
+        zip_filename = f"all_results_with_progress_{timestamp}.zip"
+        final_zip_path = os.path.join(output_dir, zip_filename)
 
-            # 逐个打包目录
-            for i, directory in enumerate(selected_dirs):
-                logger.info(f"正在打包目录 {i+1}/{total_dirs}: {directory}")
-                
-                # 发送当前正在打包的目录信息
-                progress_info = {
-                    "status": "packing",
-                    "message": f"正在打包 {directory}",
-                    "current_dir": directory,
-                    "packed_count": i,  # 当前完成的目录数
-                    "total_count": total_dirs,
-                    "progress": int((i / total_dirs) * 100) if total_dirs > 0 else 0
-                }
-                yield f"data: {json.dumps(progress_info)}\n\n"
-                
-                # 创建临时ZIP文件
-                zip_fd, temp_zip_path = tempfile.mkstemp(suffix=".zip")
-                os.close(zip_fd)
-                
-                try:
-                    with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        total_dirs = len(selected_dirs)
+        
+        # 异步执行打包任务
+        def do_pack():
+            try:
+                with zipfile.ZipFile(final_zip_path, 'w', zipfile.ZIP_DEFLATED) as final_zip:
+                    for i, directory in enumerate(selected_dirs):
+                        # 更新进度
+                        progress_info = {
+                            "status": "packing",
+                            "message": f"正在打包 {directory}",
+                            "current_dir": directory,
+                            "packed_count": i,
+                            "total_count": total_dirs,
+                            "progress": int((i / total_dirs) * 100) if total_dirs > 0 else 0
+                        }
+                        download_progress[task_id] = progress_info
+                        logger.info(f"正在打包目录 {i+1}/{total_dirs}: {directory}")
+                        
+                        # 打包目录中的所有文件
                         dir_path = os.path.join(output_dir, directory)
                         for root, _, files in os.walk(dir_path):
                             for file in files:
                                 file_path_full = os.path.join(root, file)
                                 arcname = os.path.relpath(file_path_full, output_dir)
-                                zipf.write(file_path_full, arcname)
-                    
-                    # 打包当前目录完成后更新进度
-                    progress_info = {
-                        "status": "packed",
-                        "message": f"已打包 {directory}",
-                        "current_dir": directory,
-                        "packed_count": i + 1,  # 完成的目录数加1
-                        "total_count": total_dirs,
-                        "progress": int(((i + 1) / total_dirs) * 100) if total_dirs > 0 else 100
-                    }
-                    yield f"data: {json.dumps(progress_info)}\n\n"
-                    
-                finally:
-                    # 清理临时zip文件
-                    try:
-                        os.remove(temp_zip_path)
-                    except:
-                        pass  # 忽略清理错误
-
-            # 所有目录都打包完成后，开始最终的ZIP文件创建
-            progress_info = {
-                "status": "finalizing",
-                "message": "正在创建最终压缩包",
-                "current_dir": "合并文件",
-                "packed_count": total_dirs,
-                "total_count": total_dirs,
-                "progress": 95
-            }
-            yield f"data: {json.dumps(progress_info)}\n\n"
-
-            # 创建最终的ZIP文件
-            timestamp = time.strftime("%y%m%d_%H%M%S")
-            zip_filename = f"all_results_with_progress_{timestamp}.zip"
-            final_zip_path = os.path.join(output_dir, zip_filename)
-
-            with zipfile.ZipFile(final_zip_path, 'w', zipfile.ZIP_DEFLATED) as final_zip:
-                for directory in selected_dirs:
-                    dir_path = os.path.join(output_dir, directory)
-                    for root, _, files in os.walk(dir_path):
-                        for file in files:
-                            file_path_full = os.path.join(root, file)
-                            arcname = os.path.relpath(file_path_full, output_dir)
-                            final_zip.write(file_path_full, arcname)
-
-            # 发送完成状态
-            progress_info = {
-                "status": "completed",
-                "message": "打包完成，准备下载",
-                "current_dir": "完成",
-                "packed_count": total_dirs,
-                "total_count": total_dirs,
-                "progress": 100,
-                "download_path": final_zip_path  # 通过另一种方式传递文件路径
-            }
-            yield f"data: {json.dumps(progress_info)}\n\n"
-
-        # 返回SSE响应
-        return StreamingResponse(event_generator(), media_type="text/plain")
+                                final_zip.write(file_path_full, arcname)
+                        
+                        # 更新完成进度
+                        progress_info = {
+                            "status": "packed",
+                            "message": f"已打包 {directory}",
+                            "current_dir": directory,
+                            "packed_count": i + 1,
+                            "total_count": total_dirs,
+                            "progress": int(((i + 1) / total_dirs) * 100) if total_dirs > 0 else 100
+                        }
+                        download_progress[task_id] = progress_info
+                
+                # 完成
+                completion_info = {
+                    "status": "completed",
+                    "message": f"打包完成，共打包 {total_dirs} 个目录",
+                    "current_dir": "完成",
+                    "packed_count": total_dirs,
+                    "total_count": total_dirs,
+                    "progress": 100,
+                    "download_path": final_zip_path,
+                    "filename": os.path.basename(final_zip_path)
+                }
+                download_progress[task_id] = completion_info
+            except Exception as e:
+                logger.exception(e)
+                error_info = {
+                    "status": "error",
+                    "message": f"打包失败: {str(e)}",
+                    "current_dir": "-",
+                    "packed_count": 0,
+                    "total_count": 0,
+                    "progress": 0
+                }
+                download_progress[task_id] = error_info
+        
+        # 在后台线程中执行打包，这样可以返回任务ID立即
+        import threading
+        thread = threading.Thread(target=do_pack)
+        thread.start()
+        
+        # 返回任务ID，前端将使用此ID查询进度
+        return JSONResponse(content={
+            "task_id": task_id,
+            "status": "started",
+            "message": "打包任务已启动",
+            "total_count": len(selected_dirs)
+        })
 
     except Exception as e:
         logger.exception(e)
-        # 发送错误状态
-        async def error_generator():
-            error_info = {
+        return JSONResponse(
+            status_code=500, 
+            content={
                 "status": "error",
-                "message": f"下载失败: {str(e)}",
+                "message": f"启动打包任务失败: {str(e)}",
                 "current_dir": "-",
                 "packed_count": 0,
                 "total_count": 0,
                 "progress": 0
             }
-            yield f"data: {json.dumps(error_info)}\n\n"
-        
-        return StreamingResponse(error_generator(), media_type="text/plain")
+        )
+
+
+# 新增查询下载进度的接口
+@app.get("/download_progress/{task_id}")
+async def get_download_progress(task_id: str):
+    """查询指定任务的下载进度"""
+    try:
+        if task_id in download_progress:
+            return JSONResponse(content=download_progress[task_id])
+        else:
+            return JSONResponse(
+                status_code=404, 
+                content={
+                    "status": "not_found",
+                    "message": "任务不存在",
+                    "current_dir": "-",
+                    "packed_count": 0,
+                    "total_count": 0,
+                    "progress": 0
+                }
+            )
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"查询进度失败: {str(e)}",
+                "current_dir": "-",
+                "packed_count": 0,
+                "total_count": 0,
+                "progress": 0
+            }
+        )
 
 @app.get("/output/find_pdf")
 async def find_pdf(q: str):

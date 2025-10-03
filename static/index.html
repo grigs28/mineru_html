@@ -1660,7 +1660,7 @@
                         return;
                     }
                     
-                    // 使用支持实时进度的接口
+                    // 启动打包任务
                     const response = await fetch('/download_all_with_progress', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1671,71 +1671,76 @@
                         throw new Error(`HTTP ${response.status}`);
                     }
                     
-                    // 使用流式响应处理进度更新
-                    const reader = response.body.getReader();
-                    const decoder = new TextDecoder();
-                    let buffer = '';
+                    const taskInfo = await response.json();
                     
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        
-                        if (done) break;
-                        
-                        // 解码接收到的数据
-                        buffer += decoder.decode(value, { stream: true });
-                        
-                        // 查找完整的消息（以 \n\n 分隔）
-                        let boundary = buffer.indexOf('\n\n');
-                        while (boundary !== -1) {
-                            const message = buffer.substring(0, boundary);
-                            buffer = buffer.substring(boundary + 2);
-                            
-                            // 移除 'data: ' 前缀并解析JSON
-                            if (message.startsWith('data: ')) {
-                                const jsonData = message.substring(6); // 移除 'data: ' 前缀
-                                try {
-                                    const progressData = JSON.parse(jsonData);
-                                    
-                                    // 更新进度
-                                    this.updateDownloadProgress(
-                                        progressData.progress || 0, 
-                                        progressData.message || '处理中...', 
-                                        {
-                                            currentDir: progressData.current_dir || '-',
-                                            packedCount: progressData.packed_count || 0,
-                                            totalCount: progressData.total_count || 0
-                                        }
-                                    );
-                                    
-                                    // 如果是完成状态，获取并下载文件
-                                    if (progressData.status === 'completed' && progressData.download_path) {
-                                        // 下载文件
-                                        const downloadUrl = `/download_file/${encodeURIComponent(progressData.download_path.split('/').pop())}`;
-                                        const downloadRes = await fetch(downloadUrl);
-                                        
-                                        if (downloadRes.ok) {
-                                            const blob = await downloadRes.blob();
-                                            const url = URL.createObjectURL(blob);
-                                            const a = document.createElement('a');
-                                            const ts = this.getCurrentTimestamp();
-                                            a.href = url;
-                                            a.download = `completed_${completedFiles.length}_all_results_${ts}.zip`;
-                                            document.body.appendChild(a);
-                                            a.click();
-                                            document.body.removeChild(a);
-                                            URL.revokeObjectURL(url);
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.error('解析进度数据失败:', e, jsonData);
-                                }
-                            }
-                            
-                            boundary = buffer.indexOf('\n\n');
-                        }
+                    if (taskInfo.status === 'error') {
+                        throw new Error(taskInfo.message || '启动打包任务失败');
                     }
                     
-                    reader.releaseLock();
+                    const taskId = taskInfo.task_id;
+                    
+                    // 轮询进度直到完成
+                    let completed = false;
+                    while (!completed) {
+                        await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒
+                        
+                        try {
+                            const progressResponse = await fetch(`/download_progress/${taskId}`);
+                            if (!progressResponse.ok) {
+                                throw new Error(`HTTP ${progressResponse.status}`);
+                            }
+                            
+                            const progressData = await progressResponse.json();
+                            
+                            // 更新进度
+                            this.updateDownloadProgress(
+                                progressData.progress || 0, 
+                                progressData.message || '处理中...', 
+                                {
+                                    currentDir: progressData.current_dir || '-',
+                                    packedCount: progressData.packed_count || 0,
+                                    totalCount: progressData.total_count || 0
+                                }
+                            );
+                            
+                            // 检查是否完成
+                            if (progressData.status === 'completed') {
+                                completed = true;
+                                
+                                // 下载文件
+                                const downloadUrl = `/download_file/${encodeURIComponent(progressData.filename)}`;
+                                const downloadRes = await fetch(downloadUrl);
+                                
+                                if (downloadRes.ok) {
+                                    const blob = await downloadRes.blob();
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    const ts = this.getCurrentTimestamp();
+                                    a.href = url;
+                                    a.download = `completed_${completedFiles.length}_all_results_${ts}.zip`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                    
+                                    this.updateDownloadProgress(100, '所有结果文件下载完成', {
+                                        currentDir: '完成',
+                                        packedCount: completedFiles.length,
+                                        totalCount: completedFiles.length
+                                    });
+                                } else {
+                                    throw new Error('下载文件失败');
+                                }
+                                
+                                break; // 完成后退出循环
+                            } else if (progressData.status === 'error') {
+                                throw new Error(progressData.message || '打包失败');
+                            }
+                        } catch (e) {
+                            console.error('获取进度失败:', e);
+                            throw e;
+                        }
+                    }
                     
                     // 最后更新进度为完成
                     setTimeout(() => {
@@ -2179,7 +2184,7 @@
                 });
                 
                 try {
-                    // 使用支持实时进度的接口
+                    // 启动打包任务
                     const response = await fetch('/download_all_with_progress', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -2190,71 +2195,76 @@
                         throw new Error(`HTTP ${response.status}`);
                     }
                     
-                    // 使用流式响应处理进度更新
-                    const reader = response.body.getReader();
-                    const decoder = new TextDecoder();
-                    let buffer = '';
+                    const taskInfo = await response.json();
                     
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        
-                        if (done) break;
-                        
-                        // 解码接收到的数据
-                        buffer += decoder.decode(value, { stream: true });
-                        
-                        // 查找完整的消息（以 \n\n 分隔）
-                        let boundary = buffer.indexOf('\n\n');
-                        while (boundary !== -1) {
-                            const message = buffer.substring(0, boundary);
-                            buffer = buffer.substring(boundary + 2);
-                            
-                            // 移除 'data: ' 前缀并解析JSON
-                            if (message.startsWith('data: ')) {
-                                const jsonData = message.substring(6); // 移除 'data: ' 前缀
-                                try {
-                                    const progressData = JSON.parse(jsonData);
-                                    
-                                    // 更新进度
-                                    this.updateDownloadProgress(
-                                        progressData.progress || 0, 
-                                        progressData.message || '处理中...', 
-                                        {
-                                            currentDir: progressData.current_dir || '-',
-                                            packedCount: progressData.packed_count || 0,
-                                            totalCount: progressData.total_count || 0
-                                        }
-                                    );
-                                    
-                                    // 如果是完成状态，获取并下载文件
-                                    if (progressData.status === 'completed' && progressData.download_path) {
-                                        // 下载文件
-                                        const downloadUrl = `/download_file/${encodeURIComponent(progressData.download_path.split('/').pop())}`;
-                                        const downloadRes = await fetch(downloadUrl);
-                                        
-                                        if (downloadRes.ok) {
-                                            const blob = await downloadRes.blob();
-                                            const url = URL.createObjectURL(blob);
-                                            const a = document.createElement('a');
-                                            const ts = this.getCurrentTimestamp();
-                                            a.href = url;
-                                            a.download = `selected_outputs_${ts}.zip`;
-                                            document.body.appendChild(a);
-                                            a.click();
-                                            document.body.removeChild(a);
-                                            URL.revokeObjectURL(url);
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.error('解析进度数据失败:', e, jsonData);
-                                }
-                            }
-                            
-                            boundary = buffer.indexOf('\n\n');
-                        }
+                    if (taskInfo.status === 'error') {
+                        throw new Error(taskInfo.message || '启动打包任务失败');
                     }
                     
-                    reader.releaseLock();
+                    const taskId = taskInfo.task_id;
+                    
+                    // 轮询进度直到完成
+                    let completed = false;
+                    while (!completed) {
+                        await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒
+                        
+                        try {
+                            const progressResponse = await fetch(`/download_progress/${taskId}`);
+                            if (!progressResponse.ok) {
+                                throw new Error(`HTTP ${progressResponse.status}`);
+                            }
+                            
+                            const progressData = await progressResponse.json();
+                            
+                            // 更新进度
+                            this.updateDownloadProgress(
+                                progressData.progress || 0, 
+                                progressData.message || '处理中...', 
+                                {
+                                    currentDir: progressData.current_dir || '-',
+                                    packedCount: progressData.packed_count || 0,
+                                    totalCount: progressData.total_count || 0
+                                }
+                            );
+                            
+                            // 检查是否完成
+                            if (progressData.status === 'completed') {
+                                completed = true;
+                                
+                                // 下载文件
+                                const downloadUrl = `/download_file/${encodeURIComponent(progressData.filename)}`;
+                                const downloadRes = await fetch(downloadUrl);
+                                
+                                if (downloadRes.ok) {
+                                    const blob = await downloadRes.blob();
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    const ts = this.getCurrentTimestamp();
+                                    a.href = url;
+                                    a.download = `selected_outputs_${ts}.zip`;
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                    
+                                    this.updateDownloadProgress(100, '选择的输出文件下载完成', {
+                                        currentDir: '完成',
+                                        packedCount: selectedFiles.length,
+                                        totalCount: selectedFiles.length
+                                    });
+                                } else {
+                                    throw new Error('下载文件失败');
+                                }
+                                
+                                break; // 完成后退出循环
+                            } else if (progressData.status === 'error') {
+                                throw new Error(progressData.message || '打包失败');
+                            }
+                        } catch (e) {
+                            console.error('获取进度失败:', e);
+                            throw e;
+                        }
+                    }
                     
                     // 最后更新进度为完成
                     setTimeout(() => {
