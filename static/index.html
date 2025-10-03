@@ -283,13 +283,44 @@
                     if (!res.ok) return;
                     const serverFiles = await res.json();
                     
-                    // 找出需要同步的新文件（服务端没有的）
-                    const serverFileNames = new Set(serverFiles.map(f => f.name));
-                    const newFiles = this.uploadedFiles.filter(f => !serverFileNames.has(f.name));
+                    // 构建服务端taskId到文件的映射
+                    const serverTaskIdMap = new Map();
+                    serverFiles.forEach(f => {
+                        if (f.taskId) {
+                            serverTaskIdMap.set(f.taskId, f);
+                        }
+                    });
                     
-                    if (newFiles.length > 0) {
+                    // 找出需要同步到服务端的文件
+                    // 只同步本地有而服务端没有的文件，或本地状态更新的文件
+                    const filesToSync = [];
+                    
+                    for (const f of this.uploadedFiles) {
+                        if (!f.taskId) {
+                            // 没有任务ID的文件跳过（这些可能是未上传的文件）
+                            continue;
+                        }
+                        
+                        const serverFile = serverTaskIdMap.get(f.taskId);
+                        
+                        if (!serverFile) {
+                            // 服务端没有该任务ID，需要添加
+                            filesToSync.push(f);
+                        } else {
+                            // 服务端有该任务ID，检查是否需要更新
+                            // 如果本地状态更新，需要同步到服务端
+                            if (f.status !== serverFile.status || 
+                                f.progress !== serverFile.progress || 
+                                f.message !== serverFile.message ||
+                                f.errorMessage !== serverFile.errorMessage) {
+                                filesToSync.push(f);
+                            }
+                        }
+                    }
+                    
+                    if (filesToSync.length > 0) {
                         const payload = {
-                            files: newFiles.map(f => ({
+                            files: filesToSync.map(f => ({
                                 name: f.name,
                                 size: f.size || 0,
                                 status: f.status || 'pending',
@@ -309,7 +340,7 @@
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload)
                         });
-                        console.log(`同步了 ${newFiles.length} 个新文件到服务端`);
+                        console.log(`同步了 ${filesToSync.length} 个文件到服务端`);
                     }
                 } catch (e) {
                     console.warn('syncFileListToServer failed', e);
@@ -858,16 +889,16 @@
                     return;
                 }
 
-                if (this.isProcessing) {
-                    alert('转换正在进行中，请等待完成');
-                    return;
-                }
-
                 // 检查队列状态
                 try {
                     const queueStatus = await this.getQueueStatus();
                     if (queueStatus && queueStatus.queue_status === 'running') {
                         alert('队列正在处理中，请等待当前任务完成后再开始新的转换');
+                        // 确保按钮保持禁用状态
+                        const convertBtn = document.getElementById('convertBtn');
+                        convertBtn.disabled = true;
+                        convertBtn.innerHTML = '<span class="icon">⏳</span><span class="btn-text">队列处理中</span>';
+                        convertBtn.title = '队列正在处理中，请等待完成';
                         return;
                     }
                 } catch (error) {
@@ -879,6 +910,7 @@
                 const convertBtn = document.getElementById('convertBtn');
                 convertBtn.disabled = true;
                 convertBtn.innerHTML = '<span class="icon">⏳</span><span class="btn-text">启动后台处理</span>';
+                convertBtn.title = '正在启动后台处理';
 
                 try {
                     // 上传文件并自动加入队列
@@ -902,8 +934,8 @@
                     alert('启动后台处理失败: ' + error.message);
                 } finally {
                     this.isProcessing = false;
-                    convertBtn.disabled = false;
-                    convertBtn.innerHTML = '<span class="icon">🚀</span><span class="btn-text">开始转换</span>';
+                    // 检查实际队列状态以确定按钮状态
+                    await this.updateConvertButtonState();
                 }
             }
 
@@ -912,7 +944,8 @@
                 let lastUploadedFile = null;
                 
                 for (const fileData of this.uploadedFiles) {
-                        if (fileData.status === 'pending' && fileData.file instanceof Blob) {
+                    // 只上传状态为pending且没有任务ID的文件
+                    if (fileData.status === 'pending' && fileData.file instanceof Blob && !fileData.taskId) {
                         const formData = new FormData();
                         formData.append('files', fileData.file);
                         
@@ -950,6 +983,9 @@
                             console.error(`上传文件 ${fileData.name} 失败:`, error);
                             fileData.status = 'error';
                         }
+                    } else if (fileData.taskId) {
+                        // 如果文件已经有任务ID，也添加到taskIds中，但不需要重新上传
+                        taskIds.push(fileData.taskId);
                     }
                 }
                 
@@ -1134,7 +1170,8 @@
                         // 更新文件列表显示
                         this.updateFileList();
                         this.saveToStorage();
-                        this.syncFileListToServer();
+                        // 仅在有需要同步的新文件时才调用syncFileListToServer
+                        await this.syncFileListToServer();
                         
                         // 如果所有任务都已完成，停止轮询
                         if (!hasActiveTasks && this.globalPollingInterval) {

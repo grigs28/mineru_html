@@ -708,12 +708,49 @@ async def get_version():
 async def api_get_file_list():
     """获取服务器端共享的文件列表（用于多PC共享）。"""
     try:
-        # 优先从file_list.json获取文件列表
+        # 从file_list.json获取文件列表
         file_list = load_server_file_list()
         
-        # 如果file_list.json为空，则从任务管理器获取
-        if not file_list:
-            for task in task_manager.tasks.values():
+        # 同时从任务管理器获取任务状态，确保一致性
+        task_dict = {task.task_id: task for task in task_manager.tasks.values()}
+        
+        # 更新file_list中的状态与任务管理器保持一致
+        for file_info in file_list:
+            task_id = file_info.get("taskId")
+            if task_id and task_id in task_dict:
+                task = task_dict[task_id]
+                # 同步任务状态到file_list
+                file_info["status"] = task.status.value
+                file_info["progress"] = task.progress
+                file_info["message"] = task.message
+                file_info["startTime"] = task.start_time.isoformat() if task.start_time else file_info.get("startTime")
+                file_info["endTime"] = task.end_time.isoformat() if task.end_time else file_info.get("endTime")
+                file_info["errorMessage"] = task.error_message
+                file_info["result_path"] = task.result_path
+                
+                # 计算处理时间
+                if task.start_time and task.end_time:
+                    duration = (task.end_time - task.start_time).total_seconds()
+                    file_info["processingTime"] = duration
+                elif "startTime" in file_info and "endTime" in file_info and file_info["startTime"] and file_info["endTime"]:
+                    start_time = datetime.fromisoformat(file_info["startTime"].replace('Z', '+00:00'))
+                    end_time = datetime.fromisoformat(file_info["endTime"].replace('Z', '+00:00'))
+                    duration = (end_time - start_time).total_seconds()
+                    file_info["processingTime"] = duration
+                else:
+                    file_info["processingTime"] = None
+        
+        # 确保任务管理器中的任务也在file_list中（避免因file_list.json文件丢失导致任务信息丢失）
+        for task in task_manager.tasks.values():
+            # 检查是否已存在于file_list中
+            existing = False
+            for file_info in file_list:
+                if file_info.get("taskId") == task.task_id:
+                    existing = True
+                    break
+            
+            if not existing:
+                # 如果任务管理器中有但file_list中没有，则添加进去
                 file_info = {
                     "name": task.filename,
                     "size": 0,  # 文件大小信息可能丢失
@@ -746,12 +783,38 @@ async def api_get_file_list():
 
 @app.post("/api/file_list")
 async def api_set_file_list(payload: dict):
-    """设置（覆盖）服务器端文件列表。payload: {"files": [...]}"""
+    """设置（合并）服务器端文件列表。payload: {"files": [...]}"""
     try:
         files = payload.get("files", [])
         if not isinstance(files, list):
             return JSONResponse(status_code=400, content={"error": "files必须是数组"})
-        save_server_file_list(files)
+        
+        # 读取当前服务器文件列表
+        current_file_list = load_server_file_list()
+        
+        # 创建当前文件列表的taskId到索引的映射
+        current_task_ids = {}
+        for i, file_info in enumerate(current_file_list):
+            taskId = file_info.get("taskId")
+            if taskId:
+                current_task_ids[taskId] = i
+        
+        # 合并文件列表：新文件添加，已有taskId的文件更新
+        for new_file in files:
+            new_taskId = new_file.get("taskId")
+            if new_taskId and new_taskId in current_task_ids:
+                # 如果taskId存在，更新现有条目
+                idx = current_task_ids[new_taskId]
+                # 保留原始的size信息，更新其他字段
+                original_size = current_file_list[idx].get("size", 0)
+                new_file["size"] = original_size
+                current_file_list[idx] = new_file
+            else:
+                # 如果taskId不存在，添加新条目
+                current_file_list.append(new_file)
+        
+        # 保存合并后的文件列表
+        save_server_file_list(current_file_list)
         return JSONResponse(content={"ok": True})
     except Exception as e:
         logger.exception(e)
@@ -1605,23 +1668,45 @@ async def upload_with_progress(files: List[UploadFile] = File(...)):
                     content={"error": f"不支持的文件类型: {file_path.suffix}"}
                 )
             
-            # 创建任务
-            task_id = task_manager.create_task(file.filename)
+            # 检查是否已经有相同文件名的任务，且状态不是completed或failed
+            existing_task = None
+            for task in task_manager.tasks.values():
+                if task.filename == file.filename and task.status not in [TaskStatus.COMPLETED, TaskStatus.FAILED]:
+                    existing_task = task
+                    break
             
-            # 保存文件到output目录
-            output_path = os.path.join("./output", f"{task_id}_{file.filename}")
-            _ensure_output_dir()
-            
-            content = await file.read()
-            with open(output_path, "wb") as f:
-                f.write(content)
-            
-            # 更新任务状态为已上传
-            task_manager.update_task_status(task_id, TaskStatus.PENDING, 10, "文件上传完成")
-            
-            # 自动加入队列
-            task_manager.add_to_queue(task_id)
-            
+            if existing_task:
+                # 如果存在未完成的相同文件任务，使用现有任务
+                task_id = existing_task.task_id
+                # 重新设置文件内容
+                output_path = os.path.join("./output", f"{task_id}_{file.filename}")
+                _ensure_output_dir()
+                
+                content = await file.read()
+                with open(output_path, "wb") as f:
+                    f.write(content)
+                
+                # 重置任务状态为PENDING并加入队列
+                task_manager.update_task_status(task_id, TaskStatus.PENDING, 10, "文件重新上传完成")
+                task_manager.add_to_queue(task_id)
+            else:
+                # 创建新任务
+                task_id = task_manager.create_task(file.filename)
+                
+                # 保存文件到output目录
+                output_path = os.path.join("./output", f"{task_id}_{file.filename}")
+                _ensure_output_dir()
+                
+                content = await file.read()
+                with open(output_path, "wb") as f:
+                    f.write(content)
+                
+                # 更新任务状态为已上传
+                task_manager.update_task_status(task_id, TaskStatus.PENDING, 10, "文件上传完成")
+                
+                # 自动加入队列
+                task_manager.add_to_queue(task_id)
+                
             task_ids.append(task_id)
             
         return JSONResponse(content={
