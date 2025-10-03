@@ -595,6 +595,10 @@
                 const card = document.createElement('div');
                 card.className = 'file-card';
                 
+                // 添加data属性，便于后续更新单个卡片
+                card.setAttribute('data-filename', fileData.name);
+                card.setAttribute('data-taskid', fileData.taskId || '');
+                
                 const fileIcon = this.getFileIcon(fileData.name);
                 const statusBadge = this.getStatusBadge(fileData.status);
                 const progressBar = this.getProgressBar(fileData);
@@ -832,6 +836,41 @@
                     'error': '转换失败'
                 };
                 return statusMap[status] || status;
+            }
+
+            updateSingleFileCard(fileData) {
+                // 查找对应的DOM卡片并更新
+                const cardId = `file-card-${fileData.name.replace(/[^a-zA-Z0-9]/g, '_')}-${fileData.taskId || 'no-task'}`;
+                const existingCard = document.querySelector(`[data-filename="${fileData.name}"][data-taskid="${fileData.taskId}"]`);
+                
+                if (existingCard) {
+                    // 更新现有卡片的内容
+                    const statusBadge = existingCard.querySelector('.status-badge');
+                    const progressBarContainer = existingCard.querySelector('.file-card-body');
+                    const durationSpan = existingCard.querySelector('.file-duration');
+                    const actionsContainer = existingCard.querySelector('.file-actions');
+                    
+                    if (statusBadge) {
+                        statusBadge.className = `status-badge ${fileData.status}`;
+                        statusBadge.textContent = this.getStatusBadge(fileData.status);
+                    }
+                    
+                    if (progressBarContainer) {
+                        progressBarContainer.innerHTML = this.getProgressBar(fileData);
+                    }
+                    
+                    if (durationSpan) {
+                        durationSpan.textContent = this.getDurationOnly(fileData);
+                    }
+                    
+                    if (actionsContainer) {
+                        actionsContainer.innerHTML = this.getFileActions(fileData, -1); // -1表示不特定索引
+                    }
+                } else {
+                    // 如果没有找到对应卡片，可能需要重新渲染整个列表
+                    // 这种情况应该很少发生
+                    this.updateFileList();
+                }
             }
 
             async removeFile(filename) {
@@ -1147,6 +1186,18 @@
                     if (response.ok) {
                         const allTasks = await response.json();
                         
+                        // 记录更新前的状态，以检测变化
+                        const prevStatusMap = new Map();
+                        this.uploadedFiles.forEach(f => {
+                            if (f.taskId) {
+                                prevStatusMap.set(f.taskId, {
+                                    status: f.status,
+                                    progress: f.progress,
+                                    message: f.message
+                                });
+                            }
+                        });
+                        
                         // 更新所有有任务ID的文件
                         let hasActiveTasks = false;
                         let hasProcessing = false;
@@ -1154,7 +1205,22 @@
                             if (fileData.taskId) {
                                 const task = allTasks.find(t => t.task_id === fileData.taskId);
                                 if (task) {
+                                    // 保存更新前的状态
+                                    const prevStatus = {
+                                        status: fileData.status,
+                                        progress: fileData.progress,
+                                        message: fileData.message,
+                                        errorMessage: fileData.errorMessage
+                                    };
+                                    
                                     this.updateFileDataFromTask(fileData, task);
+                                    
+                                    // 检查是否有状态变化
+                                    const hasStatusChanged = 
+                                        prevStatus.status !== fileData.status ||
+                                        prevStatus.progress !== fileData.progress ||
+                                        prevStatus.message !== fileData.message ||
+                                        prevStatus.errorMessage !== fileData.errorMessage;
                                     
                                     // 检查是否有活跃任务（非完成状态）
                                     if (task.status !== 'completed' && task.status !== 'failed') {
@@ -1163,12 +1229,26 @@
                                     if (task.status === 'processing') {
                                         hasProcessing = true;
                                     }
+                                    
+                                    // 仅当状态发生变化时，才更新对应的文件卡片
+                                    if (hasStatusChanged) {
+                                        this.updateSingleFileCard(fileData);
+                                    }
                                 }
                             }
                         }
                         
-                        // 更新文件列表显示
-                        this.updateFileList();
+                        // 只有当状态发生重要变化时才更新整个列表（如统计信息）
+                        // 只有当存在活跃任务且之前没有活跃任务时才进行全列表更新
+                        // 或者当所有任务从活跃变为非活跃时更新
+                        const hasPrevActiveTasks = Array.from(prevStatusMap.values())
+                            .some(s => s.status !== 'completed' && s.status !== 'failed');
+                        
+                        if (hasActiveTasks !== hasPrevActiveTasks) {
+                            // 状态有重要变化时，才更新整个文件列表视图
+                            this.updateFileList();
+                        }
+                        
                         this.saveToStorage();
                         // 仅在有需要同步的新文件时才调用syncFileListToServer
                         await this.syncFileListToServer();
