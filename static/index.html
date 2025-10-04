@@ -1838,6 +1838,38 @@
                 }
             }
 
+            // 简化目录名显示
+            simplifyDirectoryName(dirName) {
+                if (!dirName || dirName === '-' || dirName === '完成') {
+                    return dirName;
+                }
+                
+                // 前方去掉5个"_"，后面去掉2个"_"
+                let simplified = dirName;
+                
+                // 前方去掉5个"_"
+                for (let i = 0; i < 5; i++) {
+                    const firstUnderscoreIndex = simplified.indexOf('_');
+                    if (firstUnderscoreIndex !== -1) {
+                        simplified = simplified.substring(firstUnderscoreIndex + 1);
+                    } else {
+                        break;
+                    }
+                }
+                
+                // 后面去掉2个"_"
+                for (let i = 0; i < 2; i++) {
+                    const lastUnderscoreIndex = simplified.lastIndexOf('_');
+                    if (lastUnderscoreIndex !== -1) {
+                        simplified = simplified.substring(0, lastUnderscoreIndex);
+                    } else {
+                        break;
+                    }
+                }
+                
+                return simplified;
+            }
+
             // 更新下载进度
             updateDownloadProgress(percentage, message, details = {}) {
                 const progressText = document.getElementById('downloadProgressText');
@@ -1850,7 +1882,10 @@
                 if (progressText) progressText.textContent = message;
                 if (progressPercent) progressPercent.textContent = `${Math.round(percentage)}%`;
                 if (progressBar) progressBar.style.width = `${percentage}%`;
-                if (currentDir && details.currentDir) currentDir.textContent = details.currentDir;
+                if (currentDir && details.currentDir) {
+                    const simplifiedName = this.simplifyDirectoryName(details.currentDir);
+                    currentDir.textContent = simplifiedName;
+                }
                 if (packedCount && details.packedCount !== undefined) packedCount.textContent = details.packedCount;
                 if (totalCount && details.totalCount !== undefined) totalCount.textContent = details.totalCount;
             }
