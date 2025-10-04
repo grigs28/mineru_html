@@ -1799,28 +1799,28 @@
                                 <h3>📦 正在打包下载</h3>
                                 <button class="close-btn" onclick="app.hideDownloadProgressModal()">×</button>
                             </div>
+                            <div class="progress-details" id="downloadProgressDetails">
+                                <div class="detail-item">
+                                    <span class="detail-label">正在打包:</span>
+                                    <span class="detail-value" id="currentDir" title="">-</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">已打包目录数:</span>
+                                    <span class="detail-value" id="packedCount">0</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">总目录数:</span>
+                                    <span class="detail-value" id="totalCount">0</span>
+                                </div>
+                            </div>
                             <div class="download-progress-body">
                                 <div class="progress-info">
                                     <div class="progress-text" id="downloadProgressText" style="display: none;">准备中...</div>
-                                    <div class="progress-percentage" id="downloadProgressPercent">0%</div>
                                 </div>
                                 <div class="progress-bar-container">
                                     <div class="progress-bar-fill" id="downloadProgressBar" style="width: 0%"></div>
                                 </div>
-                                <div class="progress-details" id="downloadProgressDetails">
-                                    <div class="detail-item">
-                                        <span class="detail-label">正在打包:</span>
-                                        <span class="detail-value" id="currentDir" title="">-</span>
-                                    </div>
-                                    <div class="detail-item">
-                                        <span class="detail-label">已打包目录数:</span>
-                                        <span class="detail-value" id="packedCount">0</span>
-                                    </div>
-                                    <div class="detail-item">
-                                        <span class="detail-label">总目录数:</span>
-                                        <span class="detail-value" id="totalCount">0</span>
-                                    </div>
-                                </div>
+                                <div class="progress-percentage" id="downloadProgressPercent">0%</div>
                             </div>
                         </div>
                     </div>

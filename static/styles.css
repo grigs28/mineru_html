@@ -1395,7 +1395,8 @@ body {
     flex: 1;
 }
 
-.progress-bar {
+/* 文件卡片进度条样式 */
+.file-status .progress-bar {
     width: 100%;
     height: 4px;
     background: #e9ecef;
@@ -1541,6 +1542,7 @@ body {
     min-width: 80px;
 }
 
+/* 基础详情值样式 */
 .detail-value {
     color: #6c757d;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
@@ -1728,7 +1730,8 @@ body {
     margin-bottom: 8px;
 }
 
-.progress-bar {
+/* 任务状态进度条样式 */
+.task-status .progress-bar {
     flex: 1;
     height: 8px;
     background: #e9ecef;
@@ -1854,7 +1857,7 @@ body {
     backdrop-filter: blur(5px);
 }
 
-.download-progress-content {
+.download-progress-modal .download-progress-content {
     background: white;
     border-radius: 12px;
     padding: 0;
@@ -1862,9 +1865,12 @@ body {
     max-width: 500px;
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
     animation: modalSlideIn 0.3s ease-out;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
 }
 
-.download-progress-header {
+.download-progress-modal .download-progress-header {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     padding: 20px 30px;
@@ -1874,13 +1880,13 @@ body {
     align-items: center;
 }
 
-.download-progress-header h3 {
+.download-progress-modal .download-progress-header h3 {
     margin: 0;
     font-size: 1.3em;
     font-weight: 600;
 }
 
-.close-btn {
+.download-progress-modal .close-btn {
     background: none;
     border: none;
     color: white;
@@ -1896,59 +1902,83 @@ body {
     transition: background 0.3s ease;
 }
 
-.close-btn:hover {
+.download-progress-modal .close-btn:hover {
     background: rgba(255, 255, 255, 0.2);
 }
 
-.download-progress-body {
-    padding: 30px;
+.download-progress-modal .download-progress-body {
+    padding: 20px 30px 30px 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    box-sizing: border-box;
+    flex: 1;
 }
 
-.progress-info {
+.download-progress-modal .progress-info {
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
     margin-bottom: 20px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
-.progress-text {
-    font-size: 1.1em;
+.download-progress-modal .progress-text {
+    font-size: 0.9em;
     color: #333;
     font-weight: 500;
     display: none; /* 隐藏进度文字，只显示百分比 */
 }
 
-.progress-percentage {
-    font-size: 1.2em;
-    color: #667eea;
-    font-weight: 600;
+.download-progress-modal .progress-percentage {
+    font-size: 0.8em !important;
+    color: #667eea !important;
+    font-weight: 600 !important;
+    text-align: center !important;
+    margin-top: 8px !important;
+    display: block !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    position: relative;
+    flex: 1;
 }
 
-.progress-bar-container {
+.download-progress-modal .progress-bar-container {
     width: 100%;
     height: 12px;
     background: #e9ecef;
     border-radius: 6px;
     overflow: hidden;
-    margin-bottom: 25px;
+    margin-bottom: 10px;
+    align-self: stretch;
+    box-sizing: border-box;
+    position: relative;
 }
 
-.progress-bar-fill {
+.download-progress-modal .progress-bar-fill {
     height: 100%;
     background: linear-gradient(90deg, #667eea, #764ba2);
     border-radius: 6px;
     transition: width 0.3s ease;
     width: 0%;
+    position: absolute;
+    top: 0;
+    left: 0;
 }
 
-.progress-details {
+.download-progress-modal .progress-details {
     background: #f8f9fa;
     border-radius: 8px;
-    padding: 20px;
+    padding: 15px 20px;
     border: 1px solid #e9ecef;
+    margin: 0 30px 0 30px;
+    width: calc(100% - 60px);
+    box-sizing: border-box;
 }
 
-.detail-item {
+.download-progress-modal .detail-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1956,20 +1986,21 @@ body {
     font-size: 0.95em;
 }
 
-.detail-item:last-child {
+.download-progress-modal .detail-item:last-child {
     margin-bottom: 0;
 }
 
-.detail-label {
+.download-progress-modal .detail-label {
     color: #6c757d;
     font-weight: 500;
 }
 
-.detail-value {
+/* 下载进度弹窗详情值样式 */
+.download-progress-modal .detail-value {
     color: #333;
     font-weight: 600;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-    max-width: 60%; /* 限制详情值的最大宽度 */
+    max-width: 85%; /* 限制详情值的最大宽度 */
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1977,7 +2008,7 @@ body {
 
 /* 专门针对当前处理目录的样式 */
 #currentDir {
-    max-width: 180px;
+    max-width: 400px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
