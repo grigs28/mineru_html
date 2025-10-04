@@ -24,7 +24,8 @@ echo ""
 
 # 启动服务
 echo "🎯 启动服务..."
-python gradio_app.py \
+cd "$(dirname "$0")"
+python run_gradio.py \
     --enable-sglang-engine \
     --host 0.0.0.0 \
     --port 7860 \
