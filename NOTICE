@@ -1,0 +1,36 @@
+MinerU Web 界面（定制版）v0.7.0
+Copyright (c) 2026 grigs28
+
+本产品基于 Opendatalab MinerU 的 Web 封装，包含以下第三方开源组件：
+
+======================================================================
+1. MinerU (https://github.com/opendatalab/MinerU)
+   版权所有 (c) Opendatalab
+   许可证：MinerU Open Source License（3.1 起，基于 Apache 2.0 衍生；早期版本 AGPLv3）
+   用途：核心 PDF/图片/文档解析引擎（VLM 推理）
+   版本：3.3.x（docker 基础镜像内置）
+
+2. vLLM (https://github.com/vllm-project/vllm)
+   许可证：Apache License 2.0
+   用途：VLM 模型推理加速引擎（vlm-async-engine）
+   版本：0.21.0
+
+3. FastAPI / Uvicorn / Starlette
+   许可证：BSD-3-Clause
+   用途：Web 框架 / ASGI 服务器
+
+4. loguru / click
+   许可证：MIT / BSD-3-Clause
+   用途：日志 / CLI 框架
+
+5. 前端第三方库（static/js/）
+   - marked.js (MIT)         ：Markdown 渲染
+   - KaTeX (MIT)             ：数学公式渲染
+   - JSZip (MIT)             ：ZIP 打包
+
+6. 模型（docker 镜像内置）
+   - MinerU2.5-Pro-2605-1.2B (OpenDataLab)：VLM 文档解析模型
+======================================================================
+
+本定制封装代码（gradio_app.py、src/、static/、docker/ 等）的许可遵循仓库根目录声明。
+MinerU 及其模型的使用须遵循其各自的许可证条款。

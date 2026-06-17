@@ -1,5 +1,32 @@
 # 更新日志
 
+## [0.7.1] - 2026-06-17
+
+### 🎨 UI 全屏化
+- 主容器取消 1400px 限宽，改为占满屏幕宽度；body 去掉外留白
+- 各区域（左侧 PDF 预览、右侧 md rendering / Markdown text / 输出文件）随全宽自适应扩大（flex 布局）
+- 固化文件列表任务卡片点击预览：点击任务卡片 → 左 PDF 预览 + 右 md/text/输出文件（v0.7.0 已加 click 绑定，本版完善 results 无缓存时从后端按 taskId 取 md）
+
+## [0.7.0] - 2026-06-17
+
+### 🐳 Docker 化部署（基于官方 MinerU docker）
+- **基础镜像 mineru-base:3.3**：采用上游官方 china 版 Dockerfile（daocloud + 阿里云 pip + modelscope），内置 mineru 3.x + vllm 0.21.0 + 全部模型
+- **定制镜像 mineru-web**：`FROM mineru-base:3.3` 叠加本仓库 FastAPI 后端 + 纯 HTML 前端，单容器部署（前后端同容器）
+- **docker 目录化**：Dockerfile/compose.yaml/docker-start.sh/mineru-base.Dockerfile 集中到 `docker/`，删除根目录旧 docker 文件
+
+### 🔧 后端固定 vlm-engine（vllm）
+- 移除 pipeline / vlm-sglang-client / vlm-transformers 等后端选项，统一 `vlm-engine`
+- `gradio_app.py` 的 `ModelSingleton.get_model` 改为 `"vlm-engine"`；底层推理框架从 sglang 切换到 vllm（mineru 3.x）
+- 前端后端选择 `<select>` 只保留 VLM Engine
+
+### 🏷️ 版本管理
+- 版本单一来源：CHANGELOG.md（FastAPI version、/api/version 统一通过 `_project_version()` 动态读取，消除多处硬编码不一致）
+- 界面显示项目版本 + MinerU 引擎版本；`/api/version` 返回 `{version, mineru_version}`
+
+### 🚀 生产部署（192.168.0.71）
+- 停用旧 mineru-gradio（2.2.2 + sglang），切换为单容器 mineru-web
+- daemon.json 配置稳定 DNS；构建用 `DOCKER_BUILDKIT=0`；apt 步骤允许失败跳过（容器内 apt DNS 异常，vlm-engine 不依赖 libgl/fonts）
+
 ## [0.6.1] - 2025-10-04
 
 ### 📦 下载功能优化

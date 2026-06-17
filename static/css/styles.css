@@ -12,16 +12,16 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: linear-gradient(135deg, #ffffff 0%, #dfe1fb 100%);
     min-height: 100vh;
-    padding: 20px;
+    padding: 0;   /* v0.7.1: 占满屏幕，去掉外留白 */
 }
 
 /* 容器样式 */
 .container {
-    max-width: 1400px;
-    margin: 0 auto;
+    max-width: 100%;      /* v0.7.1: 占满屏幕宽度（原 1400px 限宽） */
+    margin: 0;
     background: white;
-    border-radius: 12px;
-    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+    border-radius: 0;
+    box-shadow: none;
     overflow: hidden;
 }
 

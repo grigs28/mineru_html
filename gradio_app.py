@@ -51,8 +51,8 @@ try:
 except ImportError:
     # 如果MinerU模块不可用，创建简单的替代函数
     MINERU_AVAILABLE = False
-    pdf_suffixes = [".pdf"]
-    image_suffixes = [".png", ".jpeg", ".jpg", ".webp", ".gif"]
+    pdf_suffixes = ["pdf"]
+    image_suffixes = ["png", "jpeg", "jpg", "webp", "gif"]
     
     def read_fn(path):
         if not isinstance(path, Path):
@@ -72,7 +72,20 @@ except ImportError:
 task_manager = TaskManager()
 
 # 创建FastAPI应用
-app = FastAPI(title="MinerU Web Interface", version="0.1.8")
+def _project_version() -> str:
+    """项目版本（单一来源：CHANGELOG.md 首条 ## [x.y.z]）。"""
+    try:
+        _p = os.path.join(os.path.dirname(__file__), "CHANGELOG.md")
+        if os.path.exists(_p):
+            with open(_p, "r", encoding="utf-8") as _f:
+                _m = re.search(r"^## \[(.*?)\]", _f.read(), flags=re.MULTILINE)
+                if _m and _m.group(1):
+                    return _m.group(1)
+    except Exception:
+        pass
+    return "0.0.0"
+
+app = FastAPI(title="MinerU Web Interface", version=_project_version())
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # 创建任务管理器实例
@@ -94,20 +107,11 @@ async def get_backend_options():
     try:
         sglang_engine_enable = getattr(app.state, 'sglang_engine_enable', False)
         
-        if sglang_engine_enable:
-            backend_options = [
-                {"value": "pipeline", "label": "Pipeline"},
-                {"value": "vlm-sglang-engine", "label": "VLM SgLang Engine"}
-            ]
-            default_backend = "vlm-sglang-engine"
-        else:
-            backend_options = [
-                {"value": "pipeline", "label": "Pipeline"},
-                {"value": "vlm-transformers", "label": "VLM Transformers"},
-                {"value": "vlm-sglang-client", "label": "VLM SgLang Client"},
-                {"value": "vlm-sglang-engine", "label": "VLM SgLang Engine"}
-            ]
-            default_backend = "vlm-sglang-engine"
+        # 固定只保留 vlm-engine（vllm）后端
+        backend_options = [
+            {"value": "vlm-engine", "label": "VLM Engine"}
+        ]
+        default_backend = "vlm-engine"
         
         return JSONResponse(content={
             "backend_options": backend_options,
@@ -143,18 +147,18 @@ async def get_changelog():
 
 @app.get("/api/version")
 async def get_version():
-    """返回最新版本号，解析 CHANGELOG.md 第一条版本记录。"""
+    """返回项目版本号（CHANGELOG.md 首条）+ MinerU 引擎版本。"""
     try:
-        changelog_path = os.path.join(os.path.dirname(__file__), "CHANGELOG.md")
-        if os.path.exists(changelog_path):
-            with open(changelog_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            # 查找形如: ## [0.1.3] - yyyy-mm-dd 的首个版本
-            m = re.search(r"^## \[(.*?)\]", content, flags=re.MULTILINE)
-            if m and m.group(1):
-                return JSONResponse(content={"version": f"v{m.group(1)}"})
-        # 兜底
-        return JSONResponse(content={"version": "v0.0.0"})
+        version = f"v{_project_version()}"
+        # 读取 MinerU 引擎版本（标识底层 VLM 引擎版本）
+        mineru_version = None
+        if MINERU_AVAILABLE:
+            try:
+                from mineru.version import __version__ as _mineru_ver
+                mineru_version = str(_mineru_ver)
+            except Exception:
+                mineru_version = None
+        return JSONResponse(content={"version": version, "mineru_version": mineru_version})
     except Exception as e:
         logger.exception(e)
         return JSONResponse(status_code=500, content={"error": f"读取版本失败: {str(e)}"})
@@ -370,7 +374,7 @@ async def parse_files(
     files: List[UploadFile] = File(...),
     output_dir: str = Form("./output"),
     lang_list: List[str] = Form(["ch"]),
-    backend: str = Form("pipeline"),
+    backend: str = Form("vlm-engine"),
     parse_method: str = Form("auto"),
     formula_enable: bool = Form(True),
     table_enable: bool = Form(True),
@@ -395,7 +399,7 @@ async def parse_files(
             file_path = Path(file.filename)
             
             # 检查文件类型
-            if file_path.suffix.lower() in pdf_suffixes + image_suffixes:
+            if file_path.suffix.lower().lstrip(".") in pdf_suffixes + image_suffixes:
                 # 创建临时文件以便使用read_fn
                 temp_path = Path(output_dir) / f"temp_{file_path.name}"
                 with open(temp_path, "wb") as f:
@@ -631,7 +635,7 @@ async def convert_to_pdf(file: UploadFile = File(...)):
         file_path = Path(file.filename)
         
         # 检查文件类型
-        if file_path.suffix.lower() in pdf_suffixes:
+        if file_path.suffix.lower().lstrip(".") in pdf_suffixes:
             # 已经是PDF文件，直接返回
             return FileResponse(
                 path=None,
@@ -639,7 +643,7 @@ async def convert_to_pdf(file: UploadFile = File(...)):
                 filename=file.filename,
                 content=content
             )
-        elif file_path.suffix.lower() in image_suffixes:
+        elif file_path.suffix.lower().lstrip(".") in image_suffixes:
             # 图片文件，使用to_pdf函数转换
             temp_path = Path("./temp") / f"temp_{file_path.name}"
             temp_path.parent.mkdir(exist_ok=True)
@@ -848,6 +852,112 @@ async def download_file(filename: str):
             status_code=500,
             content={"error": f"下载文件失败: {str(e)}"}
         )
+
+
+@app.get("/api/download_zip")
+async def download_zip(task_id: Optional[str] = None, files: Optional[str] = None):
+    """直接获取 ZIP（同步），压缩内容与「输出文件」中的打包下载一致。
+    原有下载接口（/download_file、/download_all 等）逻辑与参数不变。
+
+    参数（可选，组合使用）：
+      - task_id: 打包指定任务的产物目录
+      - files:   文件名列表（逗号分隔），如 files=a.pdf,b.pdf
+      - 都不传:  打包所有已完成文件
+    返回 application/zip（FileResponse），下载后清理临时文件。
+    """
+    try:
+        output_dir = "./output"
+
+        def _find_dir_by_task_id(tid: str):
+            # 复用 /download_file 的 taskId 定位：taskId 去连字符为前缀匹配 output 目录
+            prefix = tid.replace('-', '_')
+            if os.path.exists(output_dir):
+                for item in os.listdir(output_dir):
+                    if os.path.isdir(os.path.join(output_dir, item)) and item.startswith(prefix):
+                        return item
+            return None
+
+        def _find_dir_by_filename(filename: str):
+            # 复用 /download_file 定位：file_list.json 的 taskId 优先，再文件名前缀匹配
+            try:
+                for fi in load_server_file_list():
+                    if fi.get("name") == filename and fi.get("taskId"):
+                        d = _find_dir_by_task_id(fi["taskId"])
+                        if d:
+                            return d
+            except Exception:
+                pass
+            stem = safe_stem(filename)
+            matching = []
+            if os.path.exists(output_dir):
+                for item in os.listdir(output_dir):
+                    if os.path.isdir(os.path.join(output_dir, item)) and (
+                        item.startswith(f"temp_{stem}_") or item.startswith(f"{stem}_")
+                    ):
+                        matching.append(item)
+            if matching:
+                matching.sort(reverse=True)  # 多个时取最新
+                return matching[0]
+            return None
+
+        # 确定打包范围
+        target_dirs = []
+        if task_id:
+            d = _find_dir_by_task_id(task_id)
+            if d:
+                target_dirs.append(d)
+        elif files:
+            for fn in files.split(','):
+                fn = fn.strip()
+                if fn:
+                    d = _find_dir_by_filename(fn)
+                    if d and d not in target_dirs:
+                        target_dirs.append(d)
+        else:
+            # 全部已完成文件
+            try:
+                for fi in load_server_file_list():
+                    if fi.get("status") == "completed" and fi.get("taskId"):
+                        d = _find_dir_by_task_id(fi["taskId"])
+                        if d and d not in target_dirs:
+                            target_dirs.append(d)
+            except Exception:
+                pass
+
+        if not target_dirs:
+            return JSONResponse(status_code=404, content={"error": "未找到匹配的处理结果"})
+
+        # 打包（与 /download_file 一致：os.walk + 相对 arcname；多目录以目录名作前缀避免覆盖）
+        zip_fd, zip_path = tempfile.mkstemp(suffix=".zip", prefix="mineru_api_zip_")
+        os.close(zip_fd)
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for d in target_dirs:
+                dir_full = os.path.join(output_dir, d)
+                for root, _dirs, fs in os.walk(dir_full):
+                    for f in fs:
+                        fp = os.path.join(root, f)
+                        arcname = os.path.join(d, os.path.relpath(fp, dir_full))
+                        zipf.write(fp, arcname)
+
+        # zip 命名
+        if task_id:
+            zip_name = f"{task_id}.zip"
+        elif files:
+            first = files.split(',')[0].strip()
+            zip_name = f"{safe_stem(first)}.zip" if len(target_dirs) == 1 else "files.zip"
+        else:
+            zip_name = "mineru_results.zip"
+
+        return FileResponse(
+            path=zip_path,
+            filename=zip_name,
+            media_type="application/zip",
+            background=BackgroundTask(lambda: os.remove(zip_path))
+        )
+    except Exception as e:
+        logger.exception(e)
+        return JSONResponse(status_code=500, content={"error": f"打包失败: {str(e)}"})
+
 
 @app.get("/output/raw/{filename:path}")
 async def get_output_file(filename: str):
@@ -1357,7 +1467,7 @@ async def upload_with_progress(files: List[UploadFile] = File(...)):
         for file in files:
             # 检查文件类型
             file_path = Path(file.filename)
-            if file_path.suffix.lower() not in pdf_suffixes + image_suffixes:
+            if file_path.suffix.lower().lstrip(".") not in pdf_suffixes + image_suffixes:
                 return JSONResponse(
                     status_code=400,
                     content={"error": f"不支持的文件类型: {file_path.suffix}"}
@@ -1600,7 +1710,7 @@ async def get_queue_status():
     '--enable-sglang-engine',
     'sglang_engine_enable',
     type=bool,
-    help="启用SgLang引擎后端以加快处理速度",
+    help="启用VLM引擎(vllm)后端（参数名沿用历史，内部固定走 vlm-engine）",
     default=True,
 )
 @click.option(
@@ -1635,21 +1745,12 @@ def main(ctx, sglang_engine_enable, max_convert_pages, host, port, **kwargs):
     
     if sglang_engine_enable and MINERU_AVAILABLE:
         try:
-            print("正在初始化SgLang引擎...")
-            from mineru.backend.vlm.vlm_analyze import ModelSingleton
-            model_singleton = ModelSingleton()
-            
-            # 过滤掉不应该传递给SgLang引擎的参数
-            sglang_kwargs = {k: v for k, v in kwargs.items() 
-                           if k not in ['server_name', 'server_port', 'host', 'port', 'enable_api', 'api_enable']}
-            
-            predictor = model_singleton.get_model(
-                "sglang-engine",
-                None,
-                None,
-                **sglang_kwargs
-            )
-            print("SgLang引擎初始化成功")
+            print("正在初始化VLM引擎(vllm)...")
+            # 用官方 preload_vlm_model 预加载 VLM 引擎（内部 get_vlm_engine 解析底层引擎名，
+            # 如 vllm-async-engine；直接传 "vlm-engine" 给 get_model 会报 Unsupported backend）
+            from mineru.cli.vlm_preload import preload_vlm_model
+            preload_vlm_model()
+            print("VLM引擎(vllm)初始化成功")
         except Exception as e:
             logger.exception(e)
     

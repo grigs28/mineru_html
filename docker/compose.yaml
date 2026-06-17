@@ -1,0 +1,42 @@
+# MinerU Web 单容器部署（in-process vlm-engine / vllm）
+# 前置：需先构建基础镜像 mineru:latest（见 docker/mineru-base.Dockerfile）
+services:
+  mineru-web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      network: host      # buildkit 不继承 daemon.json DNS，用 host 网络访问 apt/pip 源
+    image: mineru-web:latest
+    container_name: mineru-web
+    restart: unless-stopped
+    ports:
+      - "5555:7860"   # 对外 5555（宿主）→ 容器内 7860
+    environment:
+      MINERU_MODEL_SOURCE: local
+      MINERU_VIRTUAL_VRAM_SIZE: "6000"
+      MINERU_DEVICE_MODE: cuda:0
+    # vllm 要求共享内存 / ipc
+    ipc: host
+    shm_size: 32gb
+    volumes:
+      # 转换结果持久化（与生产历史路径一致）
+      - /opt/mineru/web_mineru/output:/app/output
+      # 文件列表持久化（刷新页面 / 多客户端共享）
+      - /opt/mineru/web_mineru/config:/app/config
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+          cpus: '4.0'
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["0"]
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7860/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      # vllm 首次加载模型耗时较长，宽限启动期
+      start_period: 180s
+      retries: 3

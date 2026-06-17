@@ -1,243 +1,112 @@
-# MinerU Web界面 - Docker版本
+# MinerU Web 界面（定制版）
 
-## 🐳 Docker部署说明
+基于 [Opendatalab MinerU](https://github.com/opendatalab/MinerU) 的 Web 封装，提供 PDF/图片文档转 Markdown 服务。
 
-这是一个基于Docker的MinerU Web界面，提供完整的PDF和图片文档转换功能。
+> **v0.7.x**：基于官方 MinerU docker 构建，固定 **vlm-engine（vllm）** 后端，单容器部署。
 
-## 🚀 快速启动
+- 后端：FastAPI + mineru 3.x + vllm（VLM 推理）
+- 前端：纯 HTML/CSS/JS（marked + KaTeX）
+- 默认端口：**5555**
 
-### 使用Docker Compose（推荐）
+## 🚀 快速部署（Docker）
 
-1. **克隆仓库**
+### 两段构建（必须 `DOCKER_BUILDKIT=0`）
+
 ```bash
 git clone https://github.com/grigs28/mineru_html.git
 cd mineru_html
+
+# 1) 基础镜像（首次，含 mineru 3.x + vllm + 全部模型，约 20-40 分钟）
+DOCKER_BUILDKIT=0 docker build -t mineru-base:3.3 -f docker/mineru-base.Dockerfile .
+
+# 2) 定制镜像（叠加本仓库 FastAPI 后端 + 静态前端）
+DOCKER_BUILDKIT=0 docker build -t mineru-web:latest -f docker/Dockerfile .
+
+# 3) 启动单容器
+docker compose -f docker/compose.yaml up -d
 ```
 
-2. **启动服务**
-```bash
-docker-compose up -d
-```
+访问 **http://\<server_ip\>:5555** （界面显示 `v0.7.1 · MinerU 3.3.x`）
 
-3. **访问界面**
-- 打开浏览器访问: http://localhost:7860
+> 一键脚本：`bash docker/docker-start.sh`（停旧 + 构建 + 启动）
 
-### 使用Docker命令
-
-```bash
-# 构建镜像
-docker build -t mineru-web .
-
-# 运行容器
-docker run -d \
-  --name mineru-web \
-  -p 7860:7860 \
-  -v /opt/mineru/web_mineru/output:/sgl-workspace/sglang/output \
-  -v /opt/mineru/web_mineru/cli:/usr/local/lib/python3.10/dist-packages/mineru/cli \
-  mineru-web
-```
+### 前置要求
+- NVIDIA GPU（Volta 架构及以上，≥8GB 显存，推荐 RTX 3090 24GB）
+- Docker + nvidia container toolkit
+- 构建必须 `DOCKER_BUILDKIT=0`（构建注意事项见 `docker/README.md`）
 
 ## 📁 项目结构
 
 ```
 mineru_html/
-├── gradio_app.py              # 主应用文件
-├── static/
-│   ├── index.html             # 前端界面
-│   └── styles.css             # 样式文件
-├── compose.yaml               # Docker Compose配置
-├── Dockerfile                 # Docker镜像构建文件
-└── README.md                  # 本文档
+├── gradio_app.py            # FastAPI 主应用（路由 + click 入口）
+├── src/                     # 后端模块：task/ · file/ · utils/
+├── static/                  # 前端：index.html + js/{app,api,utils}.js + css/
+├── config/                  # 文件列表持久化（file_list.json）
+├── docker/                  # docker 化（v0.7.0 起）
+│   ├── Dockerfile           # 定制镜像（FROM mineru-base:3.3）
+│   ├── mineru-base.Dockerfile  # 基础镜像（官方 china 版）
+│   ├── compose.yaml         # 单容器编排（5555:7860, nvidia, ipc/shm）
+│   ├── docker-start.sh      # 部署脚本
+│   └── README.md            # docker 详细说明
+├── docs/                    # 文档（API调用说明.md 等）
+├── CHANGELOG.md             # 更新日志（版本号单一来源）
+└── NOTICE                   # 第三方组件声明
 ```
 
 ## ✨ 主要功能
 
-### 1. 多文件上传
-- 支持PDF和图片文件（PNG, JPG, JPEG, BMP, TIFF）
-- 拖拽上传或点击选择
-- 批量文件上传，逐一处理
+- **多文件批量转换**：PDF/图片 → Markdown，逐一串行处理（避免显存冲突）
+- **VLM 引擎**：固定 vlm-engine（vllm），OCR + 数学公式（KaTeX）+ 表格识别
+- **实时状态**：待处理 / 处理中(进度) / 已完成 / 失败
+- **预览**：点击文件列表任务卡片 → 左侧 PDF 预览（产物 layout PDF）+ 右侧 Markdown rendering / Markdown text / 输出文件
+- **下载**：单文件 / 全部 ZIP 打包；**API 直接获取 ZIP**（`/api/download_zip`）
+- **后台处理**：可关闭浏览器，服务端继续处理
+- **状态持久化**：文件列表刷新页面 / 多客户端共享
 
-### 2. 智能转换
-- **PDF转换**: 将PDF文档转换为Markdown格式
-- **图片OCR**: 图片文件自动OCR识别
-- **公式识别**: 自动识别数学公式和化学式
-- **表格识别**: 智能识别表格结构
+## 🔌 API 速查
 
-### 3. 实时状态
-- **待处理**: 文件已上传，等待处理
-- **处理中**: 显示开始时间和处理进度（逐一处理）
-- **已完成**: 显示处理时长和结果
-- **失败**: 显示错误信息
-
-### 4. 文件管理
-- **单文件下载**: 下载该文件处理结果目录中的所有文件（ZIP打包）
-- **全部下载**: 打包所有处理成功的文件目录，统一下载
-- **队列控制**: 当有队列正在处理时，自动禁用开始转换按钮
-- 文件删除
-- 结果预览
-
-### 5. 特殊功能
-- **后台处理**: 点击开始转换后可关闭浏览器，服务器后台继续处理
-- **状态持久化**: 文件列表和状态在页面刷新后保持，支持多PC同时添加文件
-- **逐一处理**: 文件按顺序逐一处理，避免资源冲突，确保稳定性
-- **队列控制**: 当有队列正在处理时，自动禁用开始转换按钮，防止重复提交
-- **实时状态**: 显示处理开始时间、处理时长等详细信息
-- **智能下载**: 
-  - 单文件下载：打包该文件处理结果目录中的所有文件
-  - 全部下载：打包所有处理成功的文件目录，统一下载
-- **输出目录显示**: 文件转换成功时在控制台和日志中显示output目录路径
-
-## 🔧 技术特性
-
-### 前端技术
-- 纯HTML + CSS + JavaScript
-- 响应式设计
-- 实时状态更新
-- 文件拖拽上传
-
-### 后端技术
-- FastAPI框架
-- 异步文件处理
-- Docker容器化
-- 自动文件清理
-- ZIP文件打包下载
-
-## 🐳 Docker配置
-
-### 环境变量
-- `HOST`: 服务监听地址（默认: 0.0.0.0）
-- `PORT`: 服务端口（默认: 7860）
-- `MAX_CONVERT_PAGES`: 最大转换页数（默认: 1000，最大: 2000）
-
-### 数据卷挂载
-- `/sgl-workspace/sglang/output`: 输出目录
-- `/usr/local/lib/python3.10/dist-packages/mineru/cli`: MinerU CLI模块
-
-## 📊 使用流程
-
-1. **启动服务**
-```bash
-docker-compose up -d
-```
-
-2. **上传文件**
-- 拖拽文件到上传区域
-- 或点击选择文件
-
-3. **配置参数**
-- 设置最大转换页数
-- 选择后端类型
-- 配置OCR选项
-
-4. **开始转换**
-- 点击"开始转换"按钮
-- 文件将逐一处理，显示实时状态
-- **可关闭浏览器**: 转换开始后可关闭浏览器，服务器后台继续处理
-
-5. **下载结果**
-- **单文件下载**: 下载该文件处理结果目录中的所有文件（ZIP打包）
-- **全部下载**: 打包所有处理成功的文件目录，统一下载
-
-## 🛠️ 故障排除
-
-### 常见问题
-
-1. **容器启动失败**
-```bash
-# 查看容器日志
-docker-compose logs
-
-# 检查端口占用
-netstat -tlnp | grep 7860
-```
-
-2. **文件转换失败**
-```bash
-# 检查输出目录权限
-ls -la /opt/mineru/web_mineru/output
-
-# 查看详细日志
-docker-compose logs -f
-```
-
-3. **内存不足**
-```bash
-# 增加Docker内存限制
-# 在compose.yaml中调整memory限制
-```
-
-### 日志查看
+完整文档见 `docs/API调用说明.md`，交互式文档 `/docs`（Swagger）、`/redoc`。
 
 ```bash
-# 查看实时日志
-docker-compose logs -f
+# 上传（自动创建任务并入队）
+curl -F "files=@xxx.pdf" http://<ip>:5555/api/upload_with_progress
 
-# 查看特定服务日志
-docker-compose logs mineru-web
+# 轮询任务状态
+curl http://<ip>:5555/api/task/{task_id}
+
+# 获取 Markdown 结果
+curl http://<ip>:5555/api/task/{task_id}/markdown
+
+# 直接获取 ZIP（v0.7.1 新增，同步一次请求拿到）
+curl -o result.zip "http://<ip>:5555/api/download_zip?task_id={task_id}"
+#   ?files=a.pdf,b.pdf  按文件名
+#   无参                全部已完成文件
 ```
 
-## 🔄 更新说明
+## 🔧 关键约定
 
-### 版本更新
+- **版本单一来源**：`CHANGELOG.md`（`/api/version` 动态读取，同时返回 `mineru_version`）
+- **后端固定 vlm-engine**：`gradio_app.py` 用官方 `preload_vlm_model()` 预加载
+- **docker 构建四坑**：`DOCKER_BUILDKIT=0` / 容器内是 `python3` / apt 步骤允许失败跳过 / 文件后缀无点比较（详见 `CLAUDE.md`）
+- **单 GPU 互斥**：vllm 预分配显存，启动前必须停止其他占显存容器
+
+## 📝 开发
+
 ```bash
-# 拉取最新代码
-git pull origin main
+# 本地调试（无 mineru 时走降级模式，仍可起服务做前端/路由调试）
+python run_gradio.py --enable-sglang-engine --host 0.0.0.0 --port 7860
 
-# 重新构建镜像
-docker-compose build
-
-# 重启服务
-docker-compose up -d
+# 测试
+python -m pytest tests/ -v
 ```
 
-### 数据备份
-```bash
-# 备份输出目录
-tar -czf mineru_output_backup.tar.gz /opt/mineru/web_mineru/output
-```
-
-## 📝 开发说明
-
-### 本地开发
-```bash
-# 安装依赖
-pip install -r requirements.txt
-
-# 运行开发服务器
-python gradio_app.py --host 0.0.0.0 --port 7860
-```
-
-### 构建镜像
-```bash
-# 构建Docker镜像
-docker build -t mineru-web .
-
-# 推送镜像
-docker tag mineru-web:latest your-registry/mineru-web:latest
-docker push your-registry/mineru-web:latest
-```
-
-## 🎯 性能优化
-
-### 资源限制
-- 建议内存: 4GB+
-- 建议CPU: 2核+
-- 磁盘空间: 10GB+
-
-### 文件处理特性
-- **逐一处理**: 文件按顺序逐一处理，避免资源冲突
-- **后台运行**: 点击开始转换后可关闭浏览器，服务器后台继续处理
-- **状态持久化**: 文件列表和状态在页面刷新后保持
-- **多PC支持**: 支持多台电脑同时添加文件到队列
-
-## 📞 支持
-
-如有问题，请提交Issue或联系维护者。
+更多架构与约定见 `CLAUDE.md`，版本历史见 `CHANGELOG.md` 与 `RELEASE_vX.Y.Z.md`。
 
 ## 📄 许可证
 
-本项目基于MIT许可证开源。
+见 `NOTICE`（含 MinerU / vLLM / FastAPI / 前端库等第三方组件声明）。
 
 ---
 
-**立即开始使用**: `docker-compose up -d` 🚀
+**当前版本**：v0.7.1 · MinerU 3.3.x · vllm 0.21.0

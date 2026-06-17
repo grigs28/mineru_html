@@ -1,6 +1,6 @@
         /**
  * MinerU PDF转换工具 - 主应用JavaScript文件
- * 版本: v0.6.1
+ * 版本: 见 CHANGELOG.md（单一来源，由 /api/version 动态读取）
  * 功能: PDF文档解析与转换、文件管理、任务队列等
  * 
  * 主要功能模块:
@@ -149,7 +149,9 @@ class MinerUApp {
                     const data = await res.json();
                     const el = document.querySelector('.version-text');
                     if (el && data.version) {
-                        el.textContent = data.version;
+                        const mineru = data.mineru_version ? ` · MinerU ${data.mineru_version}` : '';
+                        el.textContent = data.version + mineru;
+                        el.title = `MinerU ${data.mineru_version || '未知'}（点击查看更新日志）`;
                     }
                 } catch (e) {
                     console.warn('获取版本失败', e);
@@ -423,7 +425,15 @@ class MinerUApp {
                         </div>
                     </div>
                 `;
-                
+
+                // 点击卡片：预览该任务转换效果（左 PDF + 右 md rendering/text/输出文件），复用现有 showMarkdownResult
+                card.addEventListener('click', (e) => {
+                    if (e.target.closest('button')) return; // 忽略卡片内按钮（下载/删除等）
+                    this.manualViewFile = fileData.name;
+                    this.showMarkdownResult(fileData.name);
+                });
+                card.style.cursor = 'pointer';
+
                 return card;
             }
 
@@ -1330,9 +1340,23 @@ class MinerUApp {
                         mdContent = result.mdContent;
                         txtContent = result.txtContent;
                     } else {
-                        // 如果没有存储的内容，显示提示信息
-                        mdContent = '## 提示\n\n暂无Markdown内容，请先转换文件。';
-                        txtContent = '暂无Markdown内容，请先转换文件。';
+                        // results 无缓存（刷新后 / 点击卡片预览），从后端按 taskId 取最新转换结果
+                        const fileData = this.uploadedFiles.find(f => f.name === filename);
+                        const taskId = fileData && fileData.taskId;
+                        if (taskId) {
+                            try {
+                                const resp = await fetch(`/api/task/${taskId}/markdown`);
+                                if (resp.ok) {
+                                    const data = await resp.json();
+                                    mdContent = data.md_content || '';
+                                    txtContent = data.txt_content || mdContent;
+                                }
+                            } catch (_) { /* 忽略，下方兜底提示 */ }
+                        }
+                        if (!mdContent) {
+                            mdContent = '## 提示\n\n暂无Markdown内容，请先转换文件。';
+                            txtContent = '暂无Markdown内容，请先转换文件。';
+                        }
                     }
                 }
                 

@@ -248,7 +248,7 @@ class TaskManager:
             formula_enable=True,
             table_enable=True,
             language="ch",
-            backend="vlm-sglang-engine",
+            backend="vlm-engine",
             url=None,
             progress_callback=update_progress
         )
