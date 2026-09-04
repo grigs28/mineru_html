@@ -6,7 +6,7 @@
 
 | 文件 | 作用 |
 |------|------|
-| `mineru-base.Dockerfile` | 构建基础镜像 `mineru-base:3.3`（上游官方 china 版，含 mineru 3.x + vllm + 模型）。一次性、耗时主要在模型下载 |
+| `mineru-base.Dockerfile` | 构建基础镜像 `mineru-base:3.4`（上游官方 china 版，含 mineru 3.x + vllm + 模型）。一次性、耗时主要在模型下载 |
 | `Dockerfile` | 构建定制镜像 `mineru-web:latest`，`FROM mineru:latest` 叠加本仓库 FastAPI 后端 + 静态前端 |
 | `compose.yaml` | 单容器编排（nvidia GPU、ipc/shm、output+config 卷） |
 | `docker-start.sh` | 停旧→构建→启动 |
@@ -16,7 +16,7 @@
 ```bash
 # 1) 基础镜像（首次，慢：下载模型数 GB）
 #    必须加 --network=host：buildkit 容器不继承 daemon.json 的 DNS，否则 apt 解析失败
-docker build --network=host -t mineru-base:3.3 -f docker/mineru-base.Dockerfile .
+docker build --network=host -t mineru-base:3.4 -f docker/mineru-base.Dockerfile .
 
 # 2) 定制镜像（快：仅叠加本仓库代码 + web 依赖）
 docker compose -f docker/compose.yaml build

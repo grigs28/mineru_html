@@ -9,8 +9,8 @@
 
 /* 主体样式 */
 body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: linear-gradient(135deg, #ffffff 0%, #dfe1fb 100%);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #f2f4fa;
     min-height: 100vh;
     padding: 0;   /* v0.7.1: 占满屏幕，去掉外留白 */
 }
@@ -19,50 +19,119 @@ body {
 .container {
     max-width: 100%;      /* v0.7.1: 占满屏幕宽度（原 1400px 限宽） */
     margin: 0;
-    background: white;
+    background: transparent;
     border-radius: 0;
     box-shadow: none;
     overflow: hidden;
 }
 
-/* 头部样式 */
+/* 头部样式：左品牌 + 右状态（队列徽章 / 版本） */
 .header {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
-    padding: 30px;
-    text-align: center;
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.brand-mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4em;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
 }
 
 .header h1 {
-    font-size: 2.5em;
-    margin-bottom: 10px;
-    font-weight: 300;
+    font-size: 1.5em;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin: 0;
 }
 
 .header p {
-    font-size: 1.1em;
-    opacity: 0.9;
+    font-size: 0.85em;
+    opacity: 0.85;
+    margin: 2px 0 0 0;
+}
+
+.header-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+/* 队列状态徽章：转换中 / 空闲 / 已暂停 */
+.queue-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 12px;
+    border-radius: 15px;
+    font-size: 0.8em;
+    font-weight: 500;
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    white-space: nowrap;
+}
+
+.queue-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #b0bec5;
+    flex-shrink: 0;
+}
+
+.queue-badge.running .queue-dot {
+    background: #69f0ae;
+    animation: queuePulse 1.2s ease-in-out infinite;
+}
+
+.queue-badge.paused .queue-dot {
+    background: #ffd54f;
+}
+
+@keyframes queuePulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(105, 240, 174, 0.5); }
+    50% { opacity: 0.6; box-shadow: 0 0 0 4px rgba(105, 240, 174, 0); }
 }
 
 /* 版本信息样式 */
 .version-text {
-    background: rgba(255, 255, 255, 0.2);
-    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.14);
+    padding: 5px 12px;
     border-radius: 15px;
     font-size: 0.8em;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.3s ease;
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    transition: all 0.25s ease;
+    border: 1px solid rgba(255, 255, 255, 0.28);
     display: inline-block;
-    margin-left: 8px;
-    vertical-align: middle;
+    white-space: nowrap;
 }
 
 .version-text:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.28);
     transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
 }
 
 /* 主内容区域 */
@@ -73,36 +142,70 @@ body {
 
 .left-panel {
     flex: 1;
-    padding: 30px;
-    border-right: 1px solid #e0e0e0;
+    min-width: 0;
+    padding: 24px 28px;
+    border-right: 1px solid #e3e6ee;
 }
 
 .right-panel {
     flex: 1;
-    padding: 30px;
+    min-width: 0;
+    padding: 24px 28px;
+}
+
+/* 设置卡片：控制面板分组 */
+.settings-card {
+    background: #fff;
+    border: 1px solid #e6e9f0;
+    border-radius: 12px;
+    padding: 20px 22px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(31, 41, 71, 0.06);
+}
+
+.settings-group + .settings-group {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px dashed #e6e9f0;
+}
+
+.group-title {
+    font-size: 0.78em;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #8a93a6;
+    margin-bottom: 14px;
+}
+
+.field-hint {
+    margin-top: 6px;
+    font-size: 0.78em;
+    color: #8a93a6;
+    line-height: 1.4;
 }
 
 /* 上传区域样式 */
 .upload-area {
-    border: 3px dashed #667eea;
+    border: 2px dashed #b9c2e0;
     border-radius: 12px;
     padding: 40px;
     text-align: center;
-    background: #f8f9ff;
-    margin-bottom: 30px;
-    transition: all 0.3s ease;
+    background: #fff;
+    margin-bottom: 24px;
+    transition: all 0.25s ease;
     cursor: pointer;
 }
 
 .upload-area:hover {
-    border-color: #764ba2;
-    background: #f0f2ff;
+    border-color: #667eea;
+    background: #f8f9ff;
 }
 
 .upload-area.dragover {
-    border-color: #764ba2;
-    background: #e8ebff;
-    transform: scale(1.02);
+    border-color: #667eea;
+    background: #eef1ff;
+    border-style: solid;
+    transform: scale(1.01);
 }
 
 .upload-icon {
@@ -194,16 +297,24 @@ body {
 
 .form-control {
     width: 100%;
-    padding: 12px;
-    border: 2px solid #e0e0e0;
+    padding: 10px 12px;
+    border: 1.5px solid #dde1ea;
     border-radius: 8px;
-    font-size: 1em;
-    transition: border-color 0.3s ease;
+    font-size: 0.95em;
+    background: #fbfcfe;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.form-control:hover {
+    border-color: #c3cadb;
+    background: #fff;
 }
 
 .form-control:focus {
     outline: none;
     border-color: #667eea;
+    background: #fff;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
 }
 
 /* 滑块样式 */
@@ -349,77 +460,57 @@ body {
     background: #45a049;
 }
 
-/* 彩色按钮样式 - 与主要按钮大小一致 */
-.btn-refresh {
-    background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    padding: 8px 12px;
-    font-size: 0.9em;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 40px;
-    height: 40px;
-    gap: 6px;
-}
-
-.btn-refresh:hover {
-    background: linear-gradient(135deg, #138496 0%, #0f6674 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-}
-
+/* 工具栏按钮：统一 36px 高度，语义化配色（主操作渐变，其余描边/平色） */
+.btn-refresh,
 .btn-select-all {
-    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-    color: white;
-    border: none;
+    background: #fff;
+    color: #4a5568;
+    border: 1.5px solid #dde1ea;
     border-radius: 8px;
     padding: 8px 12px;
     font-size: 0.9em;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
     min-width: 40px;
-    height: 40px;
+    height: 36px;
     gap: 6px;
+    white-space: nowrap;
 }
 
+.btn-refresh:hover,
 .btn-select-all:hover {
-    background: linear-gradient(135deg, #20c997 0%, #1e7e34 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border-color: #667eea;
+    color: #667eea;
+    background: #f6f8ff;
 }
 
 .btn-delete-selected {
-    background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
-    color: white;
-    border: none;
+    background: #fff;
+    color: #d64545;
+    border: 1.5px solid #f0caca;
     border-radius: 8px;
     padding: 8px 12px;
     font-size: 0.9em;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
     min-width: 40px;
-    height: 40px;
+    height: 36px;
     gap: 6px;
+    white-space: nowrap;
 }
 
 .btn-delete-selected:hover {
-    background: linear-gradient(135deg, #c82333 0%, #bd2130 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    background: #d64545;
+    border-color: #d64545;
+    color: #fff;
 }
 
 /* 主要按钮彩色样式 */
@@ -428,78 +519,80 @@ body {
     color: white;
     border: none;
     border-radius: 8px;
-    padding: 8px 12px;
+    padding: 8px 16px;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
     min-width: 40px;
-    height: 40px;
+    height: 36px;
     gap: 6px;
     font-size: 0.9em;
-    font-weight: 500;
+    font-weight: 600;
+    box-shadow: 0 2px 6px rgba(102, 126, 234, 0.3);
+    white-space: nowrap;
 }
 
 .btn-convert:hover {
-    background: linear-gradient(135deg, #5a6fd8 0%, #6a4c93 100%);
     transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
 .btn-convert:disabled {
-    background: #6c757d;
+    background: #aab0c0;
+    box-shadow: none;
     cursor: not-allowed;
     transform: none;
-    box-shadow: none;
 }
 
 .btn-clear {
-    background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
-    color: #333;
-    border: none;
+    background: #fff;
+    color: #b08600;
+    border: 1.5px solid #eedfa8;
     border-radius: 8px;
     padding: 8px 12px;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
     min-width: 40px;
-    height: 40px;
+    height: 36px;
     gap: 6px;
     font-size: 0.9em;
     font-weight: 500;
+    white-space: nowrap;
 }
 
 .btn-clear:hover {
-    background: linear-gradient(135deg, #e0a800 0%, #d39e00 100%);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    background: #fdf6e0;
+    border-color: #e0a800;
 }
 
 .btn-download-all {
-    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    background: #2fa968;
     color: white;
     border: none;
     border-radius: 8px;
     padding: 8px 12px;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
     min-width: 40px;
-    height: 40px;
+    height: 36px;
     gap: 6px;
     font-size: 0.9em;
     font-weight: 500;
+    white-space: nowrap;
 }
 
 .btn-download-all:hover {
-    background: linear-gradient(135deg, #20c997 0%, #1e7e34 100%);
+    background: #278f58;
     transform: translateY(-1px);
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 3px 8px rgba(47, 169, 104, 0.35);
 }
 
 /* PDF预览样式 */
@@ -891,11 +984,18 @@ body {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
+    flex-wrap: wrap;   /* 窄屏时按钮换行，防止挤出屏幕 */
+    gap: 10px;
+}
+
+.examples-header h3 {
+    min-width: 0;      /* 允许标题收缩，给按钮留空间 */
 }
 
 .examples-actions {
     display: flex;
     gap: 10px;
+    flex-wrap: wrap;   /* 按钮组自身也可换行 */
 }
 
 .examples-list {
@@ -928,7 +1028,11 @@ body {
 
 .example-name {
     flex: 1;
+    min-width: 0;
     color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;   /* JS 截断之外的 CSS 双保险 */
 }
 
 .example-type {
@@ -1237,12 +1341,12 @@ body {
 
 /* 统一文件状态卡片样式 */
 .file-status-cards {
-    background: #f8f9fa;
-    border: 1px solid #e0e0e0;
+    background: #fff;
+    border: 1px solid #e6e9f0;
     border-radius: 12px;
     padding: 20px;
     margin-bottom: 20px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 3px rgba(31, 41, 71, 0.06);
 }
 
 .cards-header {
@@ -1252,6 +1356,8 @@ body {
     margin-bottom: 16px;
     padding-bottom: 12px;
     border-bottom: 2px solid #e9ecef;
+    flex-wrap: wrap;   /* 窄屏时按钮换行，防止挤出屏幕 */
+    gap: 10px;
 }
 
 .cards-header h3 {
@@ -1259,11 +1365,13 @@ body {
     margin: 0;
     font-size: 1.3em;
     font-weight: 600;
+    min-width: 0;
 }
 
 .cards-actions {
     display: flex;
     gap: 8px;
+    flex-wrap: wrap;
 }
 
 .btn-icon {
@@ -1352,6 +1460,22 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     flex: 1;
+    max-width: 100%;   /* 配合 JS 中间截断，双保险控制显示长度 */
+}
+
+/* 失败原因展示（此前 errorMessage 已下发但未渲染） */
+.file-error-text {
+    margin-top: 6px;
+    font-size: 0.78em;
+    color: #c62828;
+    background: #fff5f5;
+    border: 1px solid #f5d0d0;
+    border-radius: 6px;
+    padding: 5px 8px;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .status-badge {

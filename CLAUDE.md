@@ -25,7 +25,7 @@ python gradio_app.py --host 0.0.0.0 --port 7860
 docker 相关文件集中在 `docker/` 目录（`Dockerfile`、`mineru-base.Dockerfile`、`compose.yaml`、`docker-start.sh`）。
 ```bash
 # 两段构建（必须 DOCKER_BUILDKIT=0：71 环境 buildkit 容器 apt/python DNS 异常，传统 build 走 daemon 网络正常）
-DOCKER_BUILDKIT=0 docker build -t mineru-base:3.3 -f docker/mineru-base.Dockerfile .  # 基础镜像(mineru3.3+vllm+模型)
+DOCKER_BUILDKIT=0 docker build -t mineru-base:3.4 -f docker/mineru-base.Dockerfile .  # 基础镜像(mineru3.4+vllm+模型)
 DOCKER_BUILDKIT=0 docker build -t mineru-web:latest  -f docker/Dockerfile .            # 定制镜像(叠加本仓库代码)
 docker compose -f docker/compose.yaml up -d        # 启动单容器
 docker compose -f docker/compose.yaml logs -f      # 日志

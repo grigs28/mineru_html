@@ -1,6 +1,6 @@
 #!/bin/bash
 # MinerU Web 单容器部署脚本（在 71 生产机的项目根目录执行）
-# 前置：mineru-base:3.3 已由 docker/mineru-base.Dockerfile 构建（DOCKER_BUILDKIT=0）
+# 前置：mineru-base:3.4 已由 docker/mineru-base.Dockerfile 构建（DOCKER_BUILDKIT=0）
 
 set -e
 cd "$(dirname "$0")/.."

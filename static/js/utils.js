@@ -51,9 +51,54 @@ class MinerUUtils {
             'queued': '📋 队列中',
             'processing': '⚙️ 处理中',
             'completed': '✅ 成功',
+            'failed': '❌ 失败',
             'error': '❌ 失败'
         };
         return statusMap[status] || '❓ 未知状态';
+    }
+
+    /**
+     * HTML 转义：插入 innerHTML 前对用户可控文本（文件名、错误信息等）转义，防 XSS
+     */
+    static escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    /**
+     * 展示用文件名：部分外部调用方上传时文件名已是 URL 百分号编码形态，
+     * 检测到 %XX 序列时解码后显示。仅用于展示，数据键和 API 参数仍用原始名。
+     */
+    static displayName(name) {
+        if (!name || typeof name !== 'string') return name || '';
+        if (!/%[0-9A-Fa-f]{2}/.test(name)) return name;
+        try {
+            return decodeURIComponent(name) || name;
+        } catch (e) {
+            return name;
+        }
+    }
+
+    /**
+     * 控制文件名显示长度：中间省略，保留开头、结尾和扩展名。
+     * 例如 "GB 50736-2012 民用建筑…设计规范(书签版).pdf"
+     */
+    static truncateFilename(name, maxLength = 42) {
+        if (!name || name.length <= maxLength) return name || '';
+        const dotIndex = name.lastIndexOf('.');
+        const ext = dotIndex > 0 ? name.slice(dotIndex) : '';
+        const stem = dotIndex > 0 ? name.slice(0, dotIndex) : name;
+        // 扩展名过长（异常名）时整体截断
+        const budget = maxLength - ext.length - 1; // 1 为省略号
+        if (budget < 8) return name.slice(0, maxLength - 1) + '…';
+        const head = Math.ceil(budget * 0.6);
+        const tail = budget - head;
+        return stem.slice(0, head) + '…' + stem.slice(-tail) + ext;
     }
 
     /**

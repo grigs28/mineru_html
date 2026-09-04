@@ -391,29 +391,39 @@ class MinerUApp {
             createFileCard(fileData, index) {
                 const card = document.createElement('div');
                 card.className = 'file-card';
-                
+
                 // 添加data属性，便于后续更新单个卡片
                 card.setAttribute('data-filename', fileData.name);
                 card.setAttribute('data-taskid', fileData.taskId || '');
-                
+
                 const fileIcon = this.getFileIcon(fileData.name);
                 const statusBadge = this.getStatusBadge(fileData.status);
                 const progressBar = this.getProgressBar(fileData);
                 const actions = this.getFileActions(fileData, index);
-                
+
                 // 构建状态和时间信息
                 const timeInfo = this.getTimeInfo(fileData);
-                
+
+                // 展示用文件名：解码 URL 编码名 + 中间截断控制长度（原始名仍作数据键）
+                const fullDisplayName = MinerUUtils.displayName(fileData.name);
+                const shortDisplayName = MinerUUtils.escapeHtml(MinerUUtils.truncateFilename(fullDisplayName));
+
+                // 失败原因直接展示在卡片上（后端 errorMessage 已下发，此前未渲染）
+                const errorBlock = (fileData.status === 'error' && fileData.errorMessage)
+                    ? `<div class="file-error-text" title="${MinerUUtils.escapeHtml(String(fileData.errorMessage))}">⚠️ ${MinerUUtils.escapeHtml(MinerUUtils.truncateFilename(String(fileData.errorMessage), 80))}</div>`
+                    : '';
+
                 card.innerHTML = `
                     <div class="file-card-header">
                         <div class="file-info">
                             <span class="file-icon">${fileIcon}</span>
-                            <span class="file-name" title="${fileData.name}">${fileData.name}</span>
+                            <span class="file-name" title="${MinerUUtils.escapeHtml(fullDisplayName)}">${shortDisplayName}</span>
                         </div>
                         <div class="status-badge ${fileData.status}">${statusBadge}</div>
                     </div>
                     <div class="file-card-body">
                         ${progressBar}
+                        ${errorBlock}
                     </div>
                     <div class="file-card-footer">
                         <div class="file-info-footer">
@@ -893,7 +903,8 @@ class MinerUApp {
                 try {
                     const queueStatus = await this.getQueueStatus();
                     const convertBtn = document.getElementById('convertBtn');
-                    
+                    this.updateQueueBadge(queueStatus);
+
                     if (queueStatus && queueStatus.queue_status === 'running') {
                         // 队列正在运行，禁用按钮
                         convertBtn.disabled = true;
@@ -907,6 +918,34 @@ class MinerUApp {
                     }
                 } catch (error) {
                     console.warn('更新转换按钮状态失败:', error);
+                }
+            }
+
+            // 更新 header 的队列状态徽章（🔄 转换中 / ✅ 空闲 / ⏸️ 已暂停）
+            updateQueueBadge(queueStatus) {
+                const badge = document.getElementById('queueBadge');
+                const text = document.getElementById('queueBadgeText');
+                if (!badge || !text) return;
+
+                const status = queueStatus && queueStatus.queue_status;
+                const queued = (queueStatus && queueStatus.queued_count) || 0;
+                const running = queueStatus && queueStatus.current_processing_task;
+
+                badge.classList.remove('idle', 'running', 'paused');
+                if (status === 'running') {
+                    badge.classList.add('running');
+                    text.textContent = running
+                        ? `转换中${queued > 0 ? ` · ${queued} 排队` : ''}`
+                        : `队列运行中${queued > 0 ? ` · ${queued} 排队` : ''}`;
+                    badge.title = '有转换任务正在运行';
+                } else if (status === 'paused') {
+                    badge.classList.add('paused');
+                    text.textContent = `已暂停${queued > 0 ? ` · ${queued} 排队` : ''}`;
+                    badge.title = '转换队列已暂停';
+                } else {
+                    badge.classList.add('idle');
+                    text.textContent = '队列空闲';
+                    badge.title = '当前没有转换任务运行';
                 }
             }
 
@@ -1401,16 +1440,17 @@ class MinerUApp {
             async downloadResult(filename) {
                 // 显示进度弹窗
                 this.showDownloadProgressModal();
-                this.updateDownloadProgress(0, `开始下载 ${filename}...`);
+                const displayName = MinerUUtils.displayName(filename);
+                this.updateDownloadProgress(0, `开始下载 ${displayName}...`);
                 
                 try {
                     const res = await fetch(`/download_file/${encodeURIComponent(filename)}`);
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     
-                    this.updateDownloadProgress(50, `正在处理 ${filename}...`);
+                    this.updateDownloadProgress(50, `正在处理 ${displayName}...`);
                     
                     const blob = await res.blob();
-                    this.updateDownloadProgress(90, `准备下载 ${filename}...`);
+                    this.updateDownloadProgress(90, `准备下载 ${displayName}...`);
                     
                     const blobUrl = URL.createObjectURL(blob);
                     const a = document.createElement('a');
@@ -1421,7 +1461,7 @@ class MinerUApp {
                     document.body.removeChild(a);
                     URL.revokeObjectURL(blobUrl);
                     
-                    this.updateDownloadProgress(100, `下载完成: ${filename}`);
+                    this.updateDownloadProgress(100, `下载完成: ${displayName}`);
                     
                     // 延迟隐藏进度条
                     setTimeout(() => {
@@ -1695,7 +1735,7 @@ class MinerUApp {
                 // 显示处理中的预览
                 const processingContent = `# 正在处理文件
 
-## 📄 ${fileData.name}
+## 📄 ${MinerUUtils.displayName(fileData.name)}
 
 **状态**: ⚙️ 处理中  
 **进度**: 正在转换中，请稍候...
@@ -1703,7 +1743,7 @@ class MinerUApp {
 ---
 
 ### 处理信息
-- **文件名**: ${fileData.name}
+- **文件名**: ${MinerUUtils.displayName(fileData.name)}
 - **文件大小**: ${this.formatFileSize(fileData.size)}
 - **开始时间**: ${new Date().toLocaleString()}
 - **处理状态**: 正在OCR识别和格式转换
@@ -1746,10 +1786,10 @@ class MinerUApp {
                     // 显示文件的预览
                     const filePreviewContent = `# 📁 文件已上传
 
-## ${this.getFileIcon(targetFile.name)} ${targetFile.name}
+## ${this.getFileIcon(targetFile.name)} ${MinerUUtils.displayName(targetFile.name)}
 
 **文件信息**:
-- **文件名**: ${targetFile.name}
+- **文件名**: ${MinerUUtils.displayName(targetFile.name)}
 - **文件大小**: ${this.formatFileSize(targetFile.size)}
 - **上传时间**: ${this.formatTime(targetFile.uploadTime)}
 - **状态**: ${this.getStatusBadge(targetFile.status)}
@@ -1983,8 +2023,8 @@ class MinerUApp {
                         const exampleItem = document.createElement('div');
                         exampleItem.className = 'example-item';
                         exampleItem.innerHTML = `
-                            <input type="checkbox" class="example-checkbox" data-filename="${file.name}">
-                            <div class="example-name">${file.name}</div>
+                            <input type="checkbox" class="example-checkbox" data-filename="${MinerUUtils.escapeHtml(file.name)}">
+                            <div class="example-name" title="${MinerUUtils.escapeHtml(MinerUUtils.displayName(file.name))}">${MinerUUtils.escapeHtml(MinerUUtils.truncateFilename(MinerUUtils.displayName(file.name), 60))}</div>
                             <div class="example-type">${file.type}</div>
                         `;
                         examplesList.appendChild(exampleItem);

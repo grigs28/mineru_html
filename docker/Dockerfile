@@ -1,8 +1,8 @@
 # MinerU Web 定制镜像
-# 基于 mineru-base:3.3（mineru 3.3 + vllm + 模型已内置，由 docker/mineru-base.Dockerfile 构建），
+# 基于 mineru-base:3.4（mineru 3.4 + vllm + 模型已内置，由 docker/mineru-base.Dockerfile 构建），
 # 叠加本仓库的 FastAPI 后端（gradio_app.py + src/）与纯 HTML 静态前端（static/）。
 # 固定使用 vlm-engine（vllm）后端，替代官方 mineru-gradio 入口。
-FROM mineru-base:3.3
+FROM mineru-base:3.4
 
 WORKDIR /app
 

@@ -1,4 +1,4 @@
-MinerU Web 界面（定制版）v0.7.0
+MinerU Web 界面（定制版）v0.8.0
 Copyright (c) 2026 grigs28
 
 本产品基于 Opendatalab MinerU 的 Web 封装，包含以下第三方开源组件：
@@ -8,7 +8,7 @@ Copyright (c) 2026 grigs28
    版权所有 (c) Opendatalab
    许可证：MinerU Open Source License（3.1 起，基于 Apache 2.0 衍生；早期版本 AGPLv3）
    用途：核心 PDF/图片/文档解析引擎（VLM 推理）
-   版本：3.3.x（docker 基础镜像内置）
+   版本：3.4.x（docker 基础镜像 mineru-base:3.4 内置）
 
 2. vLLM (https://github.com/vllm-project/vllm)
    许可证：Apache License 2.0

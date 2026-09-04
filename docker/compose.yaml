@@ -1,5 +1,5 @@
 # MinerU Web 单容器部署（in-process vlm-engine / vllm）
-# 前置：需先构建基础镜像 mineru-base:3.3（见 docker/mineru-base.Dockerfile）
+# 前置：需先构建基础镜像 mineru-base:3.4（见 docker/mineru-base.Dockerfile）
 services:
   mineru-web:
     build:

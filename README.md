@@ -17,7 +17,7 @@ git clone https://github.com/grigs28/mineru_html.git
 cd mineru_html
 
 # 1) 基础镜像（首次，含 mineru 3.x + vllm + 全部模型，约 20-40 分钟）
-DOCKER_BUILDKIT=0 docker build -t mineru-base:3.3 -f docker/mineru-base.Dockerfile .
+DOCKER_BUILDKIT=0 docker build -t mineru-base:3.4 -f docker/mineru-base.Dockerfile .
 
 # 2) 定制镜像（叠加本仓库 FastAPI 后端 + 静态前端）
 DOCKER_BUILDKIT=0 docker build -t mineru-web:latest -f docker/Dockerfile .
@@ -26,7 +26,7 @@ DOCKER_BUILDKIT=0 docker build -t mineru-web:latest -f docker/Dockerfile .
 docker compose -f docker/compose.yaml up -d
 ```
 
-访问 **http://\<server_ip\>:5555** （界面显示 `v0.7.1 · MinerU 3.3.x`）
+访问 **http://\<server_ip\>:5555** （界面显示版本号（由 /api/version 动态读取））
 
 > 一键脚本：`bash docker/docker-start.sh`（停旧 + 构建 + 启动）
 
@@ -44,7 +44,7 @@ mineru_html/
 ├── static/                  # 前端：index.html + js/{app,api,utils}.js + css/
 ├── config/                  # 文件列表持久化（file_list.json）
 ├── docker/                  # docker 化（v0.7.0 起）
-│   ├── Dockerfile           # 定制镜像（FROM mineru-base:3.3）
+│   ├── Dockerfile           # 定制镜像（FROM mineru-base:3.4）
 │   ├── mineru-base.Dockerfile  # 基础镜像（官方 china 版）
 │   ├── compose.yaml         # 单容器编排（5555:7860, nvidia, ipc/shm）
 │   ├── docker-start.sh      # 部署脚本
@@ -109,4 +109,4 @@ python -m pytest tests/ -v
 
 ---
 
-**当前版本**：v0.7.1 · MinerU 3.3.x · vllm 0.21.0
+**当前版本**：见 CHANGELOG.md（MinerU 3.4.x · vllm 0.21.0）
