@@ -37,7 +37,7 @@ from src.task.models import TaskStatus, QueueStatus, TaskInfo
 from src.task.manager import TaskManager
 from src.task.processor import process_tasks_background
 from src.file.manager import load_server_file_list, save_server_file_list
-from src.file.handler import sanitize_filename, image_to_base64, replace_image_with_base64, cleanup_file, load_task_markdown_content, safe_stem
+from src.file.handler import sanitize_filename, image_to_base64, replace_image_with_base64, cleanup_file, load_task_markdown_content, safe_stem, decode_filename
 from src.file.pdf_processor import parse_pdf, to_pdf
 from src.utils.vram import cleanup_vram, check_vram_available
 from src.utils.helpers import _ensure_output_dir
@@ -396,6 +396,8 @@ async def parse_files(
         
         for file in files:
             content = await file.read()
+            # 外部调用方可能 URL 编码文件名（%XX 形态会撑爆 255 字节落盘上限），先还原
+            file.filename = decode_filename(file.filename)
             file_path = Path(file.filename)
             
             # 检查文件类型
@@ -632,6 +634,8 @@ async def convert_to_pdf(file: UploadFile = File(...)):
     try:
         # 读取文件内容
         content = await file.read()
+        # 外部调用方可能 URL 编码文件名，先还原（见 decode_filename）
+        file.filename = decode_filename(file.filename)
         file_path = Path(file.filename)
         
         # 检查文件类型
@@ -1465,6 +1469,8 @@ async def upload_with_progress(files: List[UploadFile] = File(...)):
         task_ids = []
         
         for file in files:
+            # 外部调用方可能 URL 编码文件名（%XX 形态会撑爆 255 字节落盘上限，Errno 36），先还原
+            file.filename = decode_filename(file.filename)
             # 检查文件类型
             file_path = Path(file.filename)
             if file_path.suffix.lower().lstrip(".") not in pdf_suffixes + image_suffixes:

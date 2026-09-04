@@ -88,7 +88,7 @@ class MinerUUtils {
      * 控制文件名显示长度：中间省略，保留开头、结尾和扩展名。
      * 例如 "GB 50736-2012 民用建筑…设计规范(书签版).pdf"
      */
-    static truncateFilename(name, maxLength = 42) {
+    static truncateFilename(name, maxLength = 38) {
         if (!name || name.length <= maxLength) return name || '';
         const dotIndex = name.lastIndexOf('.');
         const ext = dotIndex > 0 ? name.slice(dotIndex) : '';

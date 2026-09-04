@@ -671,7 +671,10 @@ class MinerUApp {
                     }
                     
                     if (progressBarContainer) {
-                        progressBarContainer.innerHTML = this.getProgressBar(fileData);
+                        const errorBlock = (fileData.status === 'error' && fileData.errorMessage)
+                            ? `<div class="file-error-text" title="${MinerUUtils.escapeHtml(String(fileData.errorMessage))}">⚠️ ${MinerUUtils.escapeHtml(MinerUUtils.truncateFilename(String(fileData.errorMessage), 80))}</div>`
+                            : '';
+                        progressBarContainer.innerHTML = this.getProgressBar(fileData) + errorBlock;
                     }
                     
                     if (durationSpan) {
@@ -2024,7 +2027,7 @@ class MinerUApp {
                         exampleItem.className = 'example-item';
                         exampleItem.innerHTML = `
                             <input type="checkbox" class="example-checkbox" data-filename="${MinerUUtils.escapeHtml(file.name)}">
-                            <div class="example-name" title="${MinerUUtils.escapeHtml(MinerUUtils.displayName(file.name))}">${MinerUUtils.escapeHtml(MinerUUtils.truncateFilename(MinerUUtils.displayName(file.name), 60))}</div>
+                            <div class="example-name" title="${MinerUUtils.escapeHtml(MinerUUtils.displayName(file.name))}">${MinerUUtils.escapeHtml(MinerUUtils.truncateFilename(MinerUUtils.displayName(file.name), 50))}</div>
                             <div class="example-type">${file.type}</div>
                         `;
                         examplesList.appendChild(exampleItem);

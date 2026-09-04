@@ -5,8 +5,22 @@ import re
 import base64
 from pathlib import Path
 from typing import Tuple
+from urllib.parse import unquote
 
 from loguru import logger
+
+
+def decode_filename(filename: str) -> str:
+    """兼容外部调用方把文件名 URL 编码后上传（%XX 形态）。
+
+    编码形态每个汉字膨胀为 9 字节（晋 → %E6%99%8B），长中文名落盘会超
+    Linux 文件名 255 字节上限报 Errno 36。检测到 %XX 序列时解码还原，
+    未编码的名字原样返回。
+    """
+    if filename and re.search(r'%[0-9A-Fa-f]{2}', filename):
+        decoded = unquote(filename)
+        return decoded or filename
+    return filename or ''
 
 
 def sanitize_filename(filename: str) -> str:
