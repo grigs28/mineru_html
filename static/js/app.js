@@ -933,11 +933,13 @@ class MinerUApp {
                 const status = queueStatus && queueStatus.queue_status;
                 const queued = (queueStatus && queueStatus.queued_count) || 0;
                 const running = queueStatus && queueStatus.current_processing_task;
+                // /file_parse 同步转换不经队列：有 processing 状态文件也视为转换中
+                const syncProcessing = (this.uploadedFiles || []).some(f => f.status === 'processing');
 
-                badge.classList.remove('idle', 'running', 'paused');
-                if (status === 'running') {
+                badge.classList.remove('idle', 'running', 'paused', 'waiting');
+                if (status === 'running' || syncProcessing) {
                     badge.classList.add('running');
-                    text.textContent = running
+                    text.textContent = (running || syncProcessing)
                         ? `转换中${queued > 0 ? ` · ${queued} 排队` : ''}`
                         : `队列运行中${queued > 0 ? ` · ${queued} 排队` : ''}`;
                     badge.title = '有转换任务正在运行';
@@ -945,6 +947,11 @@ class MinerUApp {
                     badge.classList.add('paused');
                     text.textContent = `已暂停${queued > 0 ? ` · ${queued} 排队` : ''}`;
                     badge.title = '转换队列已暂停';
+                } else if (queued > 0) {
+                    // 有任务排队但队列未启动（外部 API 上传后未调 queue/start 的场景）
+                    badge.classList.add('waiting');
+                    text.textContent = `待启动 · ${queued} 排队`;
+                    badge.title = '有任务已入队但队列未启动，需点击"开始转换"';
                 } else {
                     badge.classList.add('idle');
                     text.textContent = '队列空闲';

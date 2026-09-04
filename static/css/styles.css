@@ -110,6 +110,12 @@ body {
     background: #ffd54f;
 }
 
+/* 待启动：有任务排队但队列未启动（琥珀色慢闪提示） */
+.queue-badge.waiting .queue-dot {
+    background: #ffb74d;
+    animation: queuePulse 2s ease-in-out infinite;
+}
+
 @keyframes queuePulse {
     0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(105, 240, 174, 0.5); }
     50% { opacity: 0.6; box-shadow: 0 0 0 4px rgba(105, 240, 174, 0); }
