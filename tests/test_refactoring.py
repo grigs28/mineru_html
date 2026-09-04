@@ -72,22 +72,25 @@ def test_task_manager():
 
 
 def test_file_manager():
-    """测试文件管理器"""
+    """测试文件管理器（先备份真实 file_list.json，结束后恢复——它是 git 跟踪的运行时数据，不能直接污染）"""
     print("测试文件管理器...")
-    
-    # 测试加载文件列表
-    file_list = load_server_file_list()
-    assert isinstance(file_list, list)
-    
-    # 测试保存文件列表
-    test_data = [{"name": "test.pdf", "size": 1024}]
-    save_server_file_list(test_data)
-    
-    # 验证保存
-    loaded_data = load_server_file_list()
-    assert len(loaded_data) == 1
-    assert loaded_data[0]["name"] == "test.pdf"
-    
+
+    backup = load_server_file_list()
+    try:
+        # 测试加载文件列表
+        assert isinstance(backup, list)
+
+        # 测试保存文件列表
+        test_data = [{"name": "test.pdf", "size": 1024}]
+        save_server_file_list(test_data)
+
+        # 验证保存
+        loaded_data = load_server_file_list()
+        assert len(loaded_data) == 1
+        assert loaded_data[0]["name"] == "test.pdf"
+    finally:
+        save_server_file_list(backup)
+
     print("✅ 文件管理器测试通过")
 
 
