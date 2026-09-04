@@ -65,8 +65,11 @@ async def parse_pdf(doc_path, output_dir, end_page_id, is_ocr, formula_enable, t
         else:
             parse_method = 'auto'
 
-        if backend.startswith("vlm"):
-            parse_method = "vlm"
+        # 无论外部传入什么 backend，固定使用 vlm-engine
+        # （v0.7.1 向后兼容：已有 API 调用可能传 pipeline/vlm-sglang-engine 等，
+        #  内部统一走 VLM 引擎，传入值仅作兼容、不影响实际引擎）
+        backend = "vlm-engine"
+        parse_method = "vlm"
 
         local_image_dir, local_md_dir = prepare_env(output_dir, file_name, parse_method)
         

@@ -47,22 +47,21 @@ python tests/test_refactoring.py     # 单独运行某个测试脚本（也可�
 ## 架构总览
 
 ### 入口与命名陷阱
-- **`gradio_app.py`（1674 行）是唯一真正的运行入口**，但它用的是 FastAPI + uvicorn，**不是 Gradio**——名字是历史遗留。该文件内 `app = FastAPI(...)`、`@click.command` 的 `main()` 末尾 `uvicorn.run(app, ...)`。
+- **`gradio_app.py`（约 1775 行）是唯一真正的运行入口**，但它用的是 FastAPI + uvicorn，**不是 Gradio**——名字是历史遗留。该文件内 `app = FastAPI(...)`、`@click.command` 的 `main()` 末尾 `uvicorn.run(app, ...)`。
 - `run_gradio.py` 只是把项目根目录插入 `sys.path` 后调用 `gradio_app.main()`，用来规避 `src` 包导入问题。
 - `fast_api.py`、`client.py`、`common.py` 是 **早期/参考实现或 MinerU 源码的本地修改副本**，直接 `from mineru...` 硬依赖 MinerU，**不是运行入口**；`gradio_app.py.sample` 是改造前的原始模板。改功能时不要误改这几个文件。
+- `vlm_sglang_server.py` 是 **sglang 时代的 4 行残留**（`from ..model.vlm_sglang_model.server import main`，该相对包已不存在），v0.7.0 移除 sglang 后端后已废弃，不是运行入口。
 - `fix_imports.py`、`extract_js.py`、`models_download.py` 是 **一次性维护脚本**（修导入、从 HTML 抽 JS、下载模型），非常驻运行代码。
 
 ### MinerU 依赖是可选的（优雅降级）
-`gradio_app.py` 与 `src/file/pdf_processor.py` 通过 `try/except ImportError` 包裹 `from mineru...` 导入，设全局标志 `MINERU_AVAILABLE`。**无 MinerU 时服务仍能启动**（走简化替代函数），便于在无 GPU/无 MinerU 环境下做前端与路由调试。生产环境通过 Docker volume 把宿主 MinerU CLI 挂进容器：
-```
-/opt/mineru/web_mineru/cli → /usr/local/lib/python3.10/dist-packages/mineru/cli
-```
+`gradio_app.py` 与 `src/file/pdf_processor.py` 通过 `try/except ImportError` 包裹 `from mineru...` 导入，设全局标志 `MINERU_AVAILABLE`。**无 MinerU 时服务仍能启动**（走简化替代函数），便于在无 GPU/无 MinerU 环境下做前端与路由调试。v0.7.0 起 mineru 3.x 已内置在 `mineru-base` 基础镜像中，**不再从宿主挂载 MinerU CLI**（旧 sglang 时代 `/opt/mineru/web_mineru/cli → 容器 mineru/cli` 的挂载已废弃，compose.yaml 中无此 volume）。
 改 MinerU 相关逻辑时，**两处导入与降级分支都要同步**（入口处 + `pdf_processor.py`）。
 
 ### 后端引擎（v0.7.0 起固定 vlm-engine）
 - **固定 `vlm-engine`（底层 vllm-async-engine）**：移除了 pipeline / vlm-sglang-client / vlm-transformers。`backend_options` 端点与前端 `<select>` 只返回 vlm-engine。
 - `main()` 用官方 `mineru.cli.vlm_preload.preload_vlm_model()` 预加载引擎（**不要直接 `get_model("vlm-engine")`**——"vlm-engine" 是 `aio_do_parse` 的高层 backend 名，`get_model` 要底层名 `vllm-async-engine`，否则报 `Unsupported backend`）。
 - `src/task/manager.py` 的 `process_single_task` 调 `parse_pdf` 时 backend 也必须是 `"vlm-engine"`（曾遗漏导致异步队列 `Invalid backend`）。
+- **v0.7.1 起 `parse_pdf` 内部强制 `backend = "vlm-engine"`**（`src/file/pdf_processor.py`），外部传入的 backend 参数仅作向后兼容、不影响实际引擎——API 调用方传 `pipeline` 等旧值也会走 VLM 引擎，不要再在调用侧做 backend 分支逻辑。
 - CLI 参数 `--enable-sglang-engine`（默认 True）保留作启用 VLM 引擎的 bool 开关（内部走 vlm-engine），向后兼容现有脚本/compose。
 
 ### 任务与状态（两层）
@@ -103,3 +102,5 @@ src/utils/  vram.py(显存清理与可用性检查，≥1.5GB 才处理) · help
 - 全局用户指令要求：项目有修改时同步更新 `NOTICE` 文件（v0.7.0 起已建，记录 mineru/vllm 等第三方组件）。
 - 显存敏感：单 GPU 互斥（vllm 预分配），启动前必须停其他占显存容器；`MINERU_VIRTUAL_VRAM_SIZE=6000`，容器内存限 16G，`ipc: host` + `shm_size: 32gb`。
 - 任何对外发布/版本变更，参考现有 `RELEASE_vX.Y.Z.md` 与 `CHANGELOG.md` 的格式续写。
+- **`QWEN.md` 内容已过时**（仍描述 v0.7.0 前的多后端 Pipeline/VLM Transformers/VLM SgLang 架构），以本文件（CLAUDE.md）与 CHANGELOG.md 为准；改架构时如保留 QWEN.md 需同步更新。
+- `docs/` 下多份分析文档（`vlm_sglang_engine_scheduling.md`、`model_loading_analysis.md` 等）写于 sglang 时代，引用前注意时效。

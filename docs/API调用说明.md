@@ -1,7 +1,7 @@
 # MinerU Web API 调用说明
 
 > **服务地址**: `http://192.168.0.71:5555`  
-> **版本**: v0.6.1  
+> **版本**: v0.7.1（MinerU 3.3.x + vllm 0.21.0）
 > **框架**: FastAPI  
 > **功能**: PDF / 图片 → Markdown 转换，支持 OCR、公式识别、表格识别
 
@@ -114,11 +114,11 @@ curl -s http://192.168.0.71:5555/api/task/{task_id}/markdown
 | `files` | File[] | — | 是 | 上传文件列表 |
 | `output_dir` | string | `"./output"` | 否 | 输出目录 |
 | `lang_list` | string[] | `["ch"]` | 否 | OCR 语言列表 |
-| `backend` | string | `"pipeline"` | 否 | 后端引擎，可选 `pipeline` / `vlm-transformers` / `vlm-sglang-engine` / `vlm-sglang-client` |
-| `parse_method` | string | `"auto"` | 否 | 解析方式，可选 `auto` / `txt` / `ocr` |
+| `backend` | string | `"vlm-engine"` | 否 | 后端引擎，**可选**（兼容 `pipeline` / `vlm-sglang-engine` / `vlm-engine` 等历史值，已有外部程序在用），**无论传何值，内部一律固定走 `vlm-engine`（vllm）** |
+| `parse_method` | string | `"auto"` | 否 | 解析方式 `auto`/`txt`/`ocr`；**vlm-engine 下实际统一为 `vlm`**（传其他值会被覆盖，由 VLM 模型统一处理） |
 | `formula_enable` | boolean | `true` | 否 | 启用公式识别 |
 | `table_enable` | boolean | `true` | 否 | 启用表格识别 |
-| `server_url` | string | `null` | 否 | sglang-client 后端时需要指定 |
+| `server_url` | string | `null` | 否 | vlm-engine（in-process）下不使用，保留仅为兼容 |
 | `return_md` | boolean | `true` | 否 | 返回 Markdown 内容 |
 | `return_images` | boolean | `true` | 否 | 返回图片（base64） |
 | `response_format_zip` | boolean | `true` | 否 | `true` 返回 ZIP 文件，`false` 返回 JSON |
@@ -130,8 +130,8 @@ curl -s http://192.168.0.71:5555/api/task/{task_id}/markdown
 ZIP 模式下返回文件下载，JSON 模式下返回：
 ```json
 {
-  "backend": "pipeline",
-  "version": "v0.6.1",
+  "backend": "vlm-engine",
+  "version": "v0.7.1",
   "results": {
     "example": {
       "md_content": "# 标题\n内容...",
@@ -427,17 +427,22 @@ curl -o all.zip "http://192.168.0.71:5555/api/download_zip"
 
 ### GET /api/version — 获取版本号
 
+返回项目版本（CHANGELOG.md 单一来源）+ MinerU 引擎版本。
+
 ```bash
 curl http://192.168.0.71:5555/api/version
-# → {"version": "v0.6.1"}
+# → {"version": "v0.7.1", "mineru_version": "3.3.1"}
 ```
 
 ---
 
 ### GET /api/backend_options — 获取后端引擎选项
 
+固定返回 `vlm-engine`（v0.7.0 起唯一后端）。
+
 ```bash
 curl http://192.168.0.71:5555/api/backend_options
+# → {"backend_options":[{"value":"vlm-engine","label":"VLM Engine"}],"default_backend":"vlm-engine"}
 ```
 
 ---
@@ -597,12 +602,11 @@ if __name__ == "__main__":
 
 ### 后端引擎（backend）
 
-| 值 | 说明 |
-|----|------|
-| `pipeline` | 通用 Pipeline 后端（默认） |
-| `vlm-transformers` | VLM Transformers 后端 |
-| `vlm-sglang-engine` | VLM SgLang 引擎后端（更快） |
-| `vlm-sglang-client` | VLM SgLang 客户端后端（需指定 `server_url`） |
+| 传入值 | 实际处理 |
+|--------|----------|
+| `vlm-engine` / `pipeline` / `vlm-sglang-engine` / `vlm-sglang-client` / …（任意） | **一律按 `vlm-engine`（vllm，底层 vllm-async-engine）处理** |
+
+> **向后兼容**：为不破坏已有 API 调用，`backend` 仍接受历史值（`pipeline` / `vlm-sglang-engine` 等），但 v0.7.1 起内部统一固定为 `vlm-engine`，**传入值不影响实际引擎**。推荐新调用直接传 `vlm-engine`。
 
 ### 解析方式（parse_method）
 
@@ -633,5 +637,5 @@ if __name__ == "__main__":
 
 ---
 
-> 文档生成日期：2026-06-15  
-> 基于 MinerU Web Interface v0.6.1
+> 文档生成日期：2026-06-17
+> 基于 MinerU Web Interface v0.7.1（MinerU 3.3.x + vllm 0.21.0）

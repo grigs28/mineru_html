@@ -1,7 +1,7 @@
-# mineru:latest 基础镜像构建文件
+# mineru-base:3.3 基础镜像构建文件
 # 来源：上游 MinerU docker/china/Dockerfile（国内 daocloud 镜像源 + 阿里云 pip + modelscope 模型源）
 # 构建命令（在项目根目录执行）：
-#   docker build -t mineru:latest -f docker/mineru-base.Dockerfile .
+#   docker build -t mineru-base:3.3 -f docker/mineru-base.Dockerfile .
 # 含 mineru 3.x + vllm 0.21.0 (CUDA 13.0) + 全部模型；体积大，耗时主要在模型下载。
 
 # 默认 CUDA 13.0；若 71 驱动不支持，改用下一行 cu129 (CUDA 12.9)
