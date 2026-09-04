@@ -210,9 +210,12 @@ async def api_get_file_list():
             
             if not existing:
                 # 如果任务管理器中有但file_list中没有，则添加进去
+                # size 不再写死 0：外部 API 上传的文件前端不知情，直接从磁盘上的上传文件 stat
+                upload_path = os.path.join("./output", f"{task.task_id}_{task.filename}")
+                file_size = os.path.getsize(upload_path) if os.path.exists(upload_path) else 0
                 file_info = {
                     "name": task.filename,
-                    "size": 0,  # 文件大小信息可能丢失
+                    "size": file_size,
                     "status": task.status.value,
                     "uploadTime": task.upload_time.isoformat() if task.upload_time else None,
                     "startTime": task.start_time.isoformat() if task.start_time else None,
@@ -234,7 +237,15 @@ async def api_get_file_list():
         
         # 按上传时间排序（最新的在前）
         file_list.sort(key=lambda x: x.get("uploadTime") or "", reverse=True)
-        
+
+        # 回填历史条目的文件大小：外部 API 上传的条目 size 曾是写死的 0，
+        # 上传文件 ./output/{taskId}_{name} 仍在磁盘上时直接 stat 真实大小
+        for file_info in file_list:
+            if not file_info.get("size") and file_info.get("taskId") and file_info.get("name"):
+                upload_path = os.path.join("./output", f"{file_info['taskId']}_{file_info['name']}")
+                if os.path.exists(upload_path):
+                    file_info["size"] = os.path.getsize(upload_path)
+
         return JSONResponse(content=file_list)
     except Exception as e:
         logger.exception(e)
