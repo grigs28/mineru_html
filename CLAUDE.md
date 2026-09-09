@@ -91,6 +91,7 @@ src/utils/  vram.py(显存清理与可用性检查，≥1.5GB 才处理) · help
 - 文件列表：`GET|POST /api/file_list`、`POST /api/remove_file`、`POST /api/clear_all`
 - 下载：`GET /download_file/{name}`、`GET|POST /download_all`、`POST /download_all_with_progress`、`GET /download_progress/{task_id}`
 - 输出：`GET /list_output_files`、`GET /output/raw/{path}`、`GET /output/find_pdf`
+- 认证（v0.9.1）：`GET /callback`、`GET /logout`、`GET /api/auth/me`（yz-login ticket 回调，**只锁 `GET /` UI 页面，API 全放行**；`src/auth.py` HMAC 签名 Cookie，`SESSION_SECRET`/`YZ_APP_ID` 环境变量）
 - 元信息：`GET /api/version`、`GET /api/backend_options`、`GET /CHANGELOG.md`
 完整参数与示例见 `docs/API调用说明.md`（注意：该文档示例里写的是 `192.168.0.71:5555`，实际默认端口是 7860，按部署环境替换）。
 

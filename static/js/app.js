@@ -29,9 +29,25 @@ class MinerUApp {
                 this.updateSliderValue();
                 this.updateBackendOptions();
                 this.refreshVersion();
+                this.refreshUser();
                 this.syncFileListFromServer();
                 this.loadExamples();
                 this.updateFileList();
+            }
+
+            // 获取当前登录用户（yz-login 会话），显示在 header
+            async refreshUser() {
+                try {
+                    const res = await fetch('/api/auth/me');
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (data.ok) {
+                        document.getElementById('userName').textContent = data.display_name || data.username;
+                        document.getElementById('userChip').style.display = 'inline-flex';
+                    }
+                } catch (e) {
+                    console.warn('获取登录用户失败', e);
+                }
             }
 
             async syncFileListFromServer() {

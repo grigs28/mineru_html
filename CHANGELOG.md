@@ -1,5 +1,14 @@
 # 更新日志
 
+## [0.9.1] - 2026-09-09
+
+### 🔐 yz-login 统一登录（方式一：ticket 回调，应用 ID 15）
+- **只保护 UI 页面**：`GET /` 未登录 302 到 yz-login 登录页；**所有 API 端点（/file_parse、/api/upload_with_progress 等）全部放行，外部调用方零影响**
+- 新增路由：`/callback`（ticket 验票→签发会话）、`/logout`、`/api/auth/me`
+- 会话为 HMAC 签名 Cookie（HttpOnly/SameSite=Lax/12h，标准库实现，无新增第三方依赖）；密钥走 `SESSION_SECRET` 环境变量（compose 已配固定值，重启不掉线）
+- header 新增登录用户芯片（姓名 + 退出）
+- `src/auth.py` 新模块；yz-login 验票用标准库 urllib（容器无新增 pip 依赖）
+
 ## [0.9.0] - 2026-09-09
 
 ### ⚡ 队列 2 并发（工人模型）

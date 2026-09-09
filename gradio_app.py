@@ -19,9 +19,9 @@ from typing import Dict, Any
 
 import click
 import uvicorn
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 from typing import List, Optional
@@ -358,8 +358,11 @@ async def api_clear_all():
         return JSONResponse(status_code=500, content={"error": f"清空失败: {str(e)}"})
 
 @app.get("/", response_class=HTMLResponse)
-async def read_root():
-    """返回主页面"""
+async def read_root(request: Request):
+    """返回主页面（v0.9.1 起需 yz-login 登录；API 端点不受影响）"""
+    from src.auth import verify_session_cookie, login_redirect_url, SESSION_COOKIE
+    if not verify_session_cookie(request.cookies.get(SESSION_COOKIE, "")):
+        return RedirectResponse(url=login_redirect_url(), status_code=302)
     html_path = os.path.join(static_dir, "index.html")
     if os.path.exists(html_path):
         with open(html_path, "r", encoding="utf-8") as f:
@@ -380,6 +383,45 @@ async def read_root():
 </body>
 </html>
         """)
+
+# ==================== yz-login 统一登录（v0.9.1，只保护 UI 页面，API 全放行） ====================
+
+@app.get("/callback")
+async def yz_login_callback(ticket: str = ""):
+    """yz-login 登录成功回调：验票 → 签发会话 Cookie → 回首页"""
+    from src.auth import verify_ticket, make_session_cookie, login_redirect_url, SESSION_COOKIE
+    if not ticket:
+        return RedirectResponse(url=login_redirect_url(), status_code=302)
+    user = await verify_ticket(ticket)
+    if not user:
+        logger.warning("yz-login 回调验票失败，重定向回登录页")
+        return RedirectResponse(url=login_redirect_url(), status_code=302)
+    resp = RedirectResponse(url="/", status_code=302)
+    resp.set_cookie(SESSION_COOKIE, make_session_cookie(user),
+                    max_age=12 * 3600, httponly=True, samesite="lax")
+    logger.info(f"用户登录成功: {user.get('display_name')}({user.get('username')})")
+    return resp
+
+
+@app.get("/logout")
+async def yz_logout():
+    """登出：清本地会话 Cookie → yz-login 登出页"""
+    from src.auth import logout_redirect_url, SESSION_COOKIE
+    resp = RedirectResponse(url=logout_redirect_url(), status_code=302)
+    resp.delete_cookie(SESSION_COOKIE)
+    return resp
+
+
+@app.get("/api/auth/me")
+async def auth_me(request: Request):
+    """当前登录用户信息（前端 header 显示用）"""
+    from src.auth import verify_session_cookie, SESSION_COOKIE
+    user = verify_session_cookie(request.cookies.get(SESSION_COOKIE, ""))
+    if not user:
+        return JSONResponse(status_code=401, content={"ok": False})
+    return JSONResponse(content={"ok": True, "username": user.get("u"),
+                                 "display_name": user.get("d"), "is_admin": user.get("admin", 0)})
+
 
 @app.post("/file_parse")
 async def parse_files(
