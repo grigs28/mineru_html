@@ -65,7 +65,7 @@ python tests/test_refactoring.py     # 单独运行某个测试脚本（也可�
 - CLI 参数 `--enable-sglang-engine`（默认 True）保留作启用 VLM 引擎的 bool 开关（内部走 vlm-engine），向后兼容现有脚本/compose。
 
 ### 任务与状态（两层）
-1. **任务状态（内存）**：`TaskManager`（`src/task/manager.py`）单例，持有 `tasks: Dict[task_id, TaskInfo]` 与 `queue_status`。状态机 `PENDING → QUEUED → PROCESSING → COMPLETED | FAILED`；队列 `QueueStatus(IDLE/RUNNING/PAUSED)`。文件 **逐一串行处理**（`processing_lock`），避免 GPU 资源冲突。**任务状态不持久化**，重启即丢失。
+1. **任务状态（内存）**：`TaskManager`（`src/task/manager.py`）单例，持有 `tasks: Dict[task_id, TaskInfo]` 与 `queue_status`。状态机 `PENDING → QUEUED → PROCESSING → COMPLETED | FAILED`；队列 `QueueStatus(IDLE/RUNNING/PAUSED)`。**v0.9.0 起 2 并发工人模型**（`_worker` × `max_concurrent=2`，`_pick_next_task` 原子取任务，任一任务完成即取下一个）；全局 GPU 槽位 `gpu_slots = Semaphore(2)` 由队列工人、`/file_parse`、`process_tasks_background` 三方共享。**任务状态不持久化**，重启即丢失。
 2. **文件列表（持久化）**：`src/file/manager.py` 把文件列表写入 `config/file_list.json`（`threading.Lock` 线程安全），保证刷新页面 / 多客户端共享同一文件列表。该 JSON 是运行时数据，已纳入 git 跟踪。
 
 ### 模块拆分（v0.6.0 重构）

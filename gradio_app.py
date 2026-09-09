@@ -344,6 +344,7 @@ async def api_clear_all():
         # 清空任务管理器
         task_manager.tasks.clear()
         task_manager.current_processing_task = None
+        task_manager.current_processing_tasks = []
         task_manager.queue_status = QueueStatus.IDLE
         # 任务和队列状态已重置，无需保存到文件
         
@@ -449,19 +450,20 @@ async def parse_files(
                     f.write(pdf_bytes)
                 
                 try:
-                    # 使用parse_pdf函数进行转换
+                    # 使用parse_pdf函数进行转换（v0.9.0: 与队列共享全局 GPU 槽位，总并发 2）
                     is_ocr = parse_method == 'ocr'
-                    result = await parse_pdf(
-                        doc_path=str(temp_path),
-                        output_dir=output_dir,
-                        end_page_id=end_page_id,
-                        is_ocr=is_ocr,
-                        formula_enable=formula_enable,
-                        table_enable=table_enable,
-                        language=actual_lang_list[i] if i < len(actual_lang_list) else actual_lang_list[0],
-                        backend=backend,
-                        url=server_url
-                    )
+                    async with task_manager.gpu_slots:
+                        result = await parse_pdf(
+                            doc_path=str(temp_path),
+                            output_dir=output_dir,
+                            end_page_id=end_page_id,
+                            is_ocr=is_ocr,
+                            formula_enable=formula_enable,
+                            table_enable=table_enable,
+                            language=actual_lang_list[i] if i < len(actual_lang_list) else actual_lang_list[0],
+                            backend=backend,
+                            url=server_url
+                        )
                     
                     if result is None:
                         logger.error(f"转换文件失败: {pdf_name}")
@@ -1667,8 +1669,8 @@ async def start_queue():
     """启动任务队列"""
     try:
         task_manager.start_queue()
-        # 开始处理队列
-        asyncio.create_task(task_manager.process_queue())
+        # 启动队列工人（v0.9.0: 2 并发工人，任一任务完成即取下一个）
+        task_manager._ensure_workers()
         
         return JSONResponse(content={
             "message": "任务队列已启动",
@@ -1709,6 +1711,8 @@ async def get_queue_status():
         return JSONResponse(content={
             "queue_status": task_manager.queue_status.value,
             "current_processing_task": task_manager.current_processing_task,
+            "current_processing_tasks": list(task_manager.current_processing_tasks),  # v0.9.0 并发列表
+            "max_concurrent": task_manager.max_concurrent,
             "queued_tasks": queued_tasks,
             "queued_count": len(queued_tasks)
         })

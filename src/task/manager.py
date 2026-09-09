@@ -13,13 +13,16 @@ from .models import TaskStatus, QueueStatus, TaskInfo
 
 class TaskManager:
     """全局任务管理器"""
-    
+
     def __init__(self):
         self.tasks: Dict[str, TaskInfo] = {}
         self.queue_status = QueueStatus.IDLE
-        self.current_processing_task = None
-        self.processing_lock = asyncio.Lock()
-        # 移除文件持久化，使用内存状态管理
+        self.current_processing_task = None          # 兼容旧单值字段（=最近开始处理的任务）
+        self.current_processing_tasks: List[str] = []  # v0.9.0: 并发处理中的任务列表
+        self.max_concurrent = 2                       # 队列工人数量（任一任务完成即取下一个）
+        # 全局 GPU 槽位：队列工人与 /file_parse 同步转换共享，总数 2（单 GPU 互斥的额度化）
+        self.gpu_slots = asyncio.Semaphore(self.max_concurrent)
+        self._workers_started = False
         
     def create_task(self, filename: str) -> str:
         """创建新任务"""
@@ -141,9 +144,11 @@ class TaskManager:
             logger.info("任务队列已启动")
     
     def stop_queue(self):
-        """停止队列处理"""
+        """停止队列处理（在跑的任务跑完，不再取新任务）"""
         self.queue_status = QueueStatus.IDLE
         self.current_processing_task = None
+        self.current_processing_tasks = []
+        self._workers_started = False
         # 队列状态已更新，无需保存到文件
         logger.info("任务队列已停止")
     
@@ -160,35 +165,59 @@ class TaskManager:
             # 如果队列空闲，启动队列（避免重复启动）
             if self.queue_status == QueueStatus.IDLE:
                 self.start_queue()
-                asyncio.create_task(self.process_queue())
-    
-    async def process_queue(self):
-        """处理队列中的任务"""
-        async with self.processing_lock:
-            while self.queue_status == QueueStatus.RUNNING:
-                next_task_id = self.get_next_task()
-                if not next_task_id:
-                    # 队列为空，等待新任务而不是停止队列
-                    await asyncio.sleep(1)
-                    continue
-                
-                self.current_processing_task = next_task_id
-                # 队列状态已更新，无需保存到文件
-                
-                try:
-                    await self.process_single_task(next_task_id)
-                except Exception as e:
-                    logger.error(f"处理任务 {next_task_id} 失败: {e}")
-                    self.update_task_status(next_task_id, TaskStatus.FAILED, 0, "处理失败", str(e))
-                finally:
-                    # 处理完成后继续下一个任务，无论成功还是失败
-                    self.current_processing_task = None
-                    # 队列状态已更新，无需保存到文件
-                    # 任务完成后清理显存
-                    from src.utils.vram import cleanup_vram
-                    cleanup_vram()
-                    # 继续处理队列中的下一个任务，即使当前任务失败
-                    pass
+                self._ensure_workers()
+
+    def _ensure_workers(self):
+        """启动队列工人协程（max_concurrent 个，共享 FIFO）"""
+        if self._workers_started:
+            return
+        self._workers_started = True
+        for i in range(self.max_concurrent):
+            asyncio.create_task(self._worker(i))
+        logger.info(f"已启动 {self.max_concurrent} 个队列工人")
+
+    def _pick_next_task(self) -> Optional[str]:
+        """原子取出最早的排队任务并标记 PROCESSING。
+
+        事件循环内检查与改状态之间无 await，两个工人不会取到同一任务。
+        """
+        queued_tasks = self.get_queue_tasks()
+        if not queued_tasks:
+            return None
+        task_id = queued_tasks[0]
+        task = self.tasks[task_id]
+        task.status = TaskStatus.PROCESSING
+        task.message = "等待GPU槽位"
+        return task_id
+
+    async def _worker(self, worker_id: int):
+        """队列工人：持有 GPU 槽位期间处理一个任务，完成立即取下一个"""
+        while self.queue_status == QueueStatus.RUNNING:
+            # 先抢 GPU 槽位再取任务，避免任务卡在 PROCESSING 等槽位
+            await self.gpu_slots.acquire()
+            task_id = self._pick_next_task()
+            if not task_id:
+                self.gpu_slots.release()
+                await asyncio.sleep(1)
+                continue
+
+            self.current_processing_tasks.append(task_id)
+            self.current_processing_task = task_id  # 兼容旧单值字段
+            try:
+                await self.process_single_task(task_id)
+            except Exception as e:
+                logger.error(f"工人{worker_id} 处理任务 {task_id} 失败: {e}")
+                self.update_task_status(task_id, TaskStatus.FAILED, 0, "处理失败", str(e))
+            finally:
+                if task_id in self.current_processing_tasks:
+                    self.current_processing_tasks.remove(task_id)
+                self.current_processing_task = (
+                    self.current_processing_tasks[-1] if self.current_processing_tasks else None
+                )
+                self.gpu_slots.release()
+                # 任务完成后清理显存（只释放未占用缓存，不影响并行任务）
+                from src.utils.vram import cleanup_vram
+                cleanup_vram()
     
     async def process_single_task(self, task_id: str):
         """处理单个任务"""

@@ -34,27 +34,28 @@ async def process_tasks_background(task_manager: TaskManager, task_ids: List[str
                 
             # 开始处理
             task_manager.update_task_status(task_id, TaskStatus.PROCESSING, 30, "正在解析文件")
-            
+
             # 定义进度回调函数
             async def update_progress(progress, message):
                 task_manager.update_task_status(task_id, TaskStatus.PROCESSING, progress, message)
                 # 添加日志记录进度更新
                 logger.info(f"任务 {task_id} 进度更新: {progress}% - {message}")
-            
-            # 使用现有的parse_pdf函数进行处理
+
+            # 使用现有的parse_pdf函数进行处理（共享全局 GPU 槽位，v0.9.0 起 2 并发）
             from src.file.pdf_processor import parse_pdf
-            result = await parse_pdf(
-                doc_path=uploaded_file,
-                output_dir=output_dir,
-                end_page_id=99999,
-                is_ocr=False,
-                formula_enable=True,
-                table_enable=True,
-                language="ch",
-                backend="vlm-sglang-engine",
-                url=None,
-                progress_callback=update_progress
-            )
+            async with task_manager.gpu_slots:
+                result = await parse_pdf(
+                    doc_path=uploaded_file,
+                    output_dir=output_dir,
+                    end_page_id=99999,
+                    is_ocr=False,
+                    formula_enable=True,
+                    table_enable=True,
+                    language="ch",
+                    backend="vlm-engine",
+                    url=None,
+                    progress_callback=update_progress
+                )
             
             if result:
                 local_md_dir, file_name = result

@@ -1,5 +1,20 @@
 # 更新日志
 
+## [0.9.0] - 2026-09-09
+
+### ⚡ 队列 2 并发（工人模型）
+- **串行 → 2 并发**：`processing_lock` 单循环改为 2 个工人协程共享 FIFO，**任一任务完成立即取下一个**（不等另一个工人）
+- **原子取任务**：`_pick_next_task()` 取出即标记 PROCESSING（事件循环内无 await，两工人不会取到同一任务）
+- **全局 GPU 槽位**：`task_manager.gpu_slots = Semaphore(2)`，队列工人、`/file_parse` 同步转换、旧后台处理路径三方共享，任何时刻 GPU 上最多 2 个任务
+- `/api/queue/status` 新增 `current_processing_tasks`（列表）与 `max_concurrent` 字段（纯增量，旧字段保留）
+- 停止队列语义：在跑的任务跑完，不再取新任务
+- 实测吞吐：串行 3.18 页/s → 2 并发 4.49 页/s（+41%）
+- 新增 `tests/test_concurrency.py`（2 工人重叠/原子取任务验证）
+
+### 🐛 修复
+- 恢复被误提交清空的 `config/file_list.json`（v0.8.1 提交混入的截断版本）
+- `src/task/processor.py` 旧后台路径残留的 `vlm-sglang-engine` 后端名更正为 `vlm-engine`
+
 ## [0.8.2] - 2026-09-04
 
 ### ✨ 队列徽章语义补全
