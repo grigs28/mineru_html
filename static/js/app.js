@@ -68,6 +68,7 @@ class MinerUApp {
                             name: f.name,
                             size: f.size || 0,
                             status: normalizeStatus(f.status),
+                            origin: f.origin || null,  // 来源徽章（ui/api）
                             uploadTime: f.uploadTime || null,
                             startTime: f.startTime || null,
                             endTime: f.endTime || null,
@@ -326,6 +327,7 @@ class MinerUApp {
                             name: file.name,
                             size: file.size,
                             status: 'pending',
+                            origin: 'ui',  // 本地选择的一定来自 UI
                             uploadTime: new Date(),
                             startTime: null,
                             endTime: null,
@@ -691,6 +693,16 @@ class MinerUApp {
                     if (statusBadge) {
                         statusBadge.className = `status-badge ${fileData.status}`;
                         statusBadge.textContent = this.getStatusBadge(fileData.status);
+                    }
+
+                    // 来源徽章：origin 后到时补插到 header（部分更新路径原本不渲染 header）
+                    const header = existingCard.querySelector('.file-card-header');
+                    if (header && fileData.origin && !header.querySelector('.origin-badge')) {
+                        const badge = document.createElement('span');
+                        badge.className = `origin-badge ${fileData.origin}`;
+                        badge.title = fileData.origin === 'ui' ? '来自浏览器 UI 上传' : '来自外部 API 调用';
+                        badge.textContent = fileData.origin === 'ui' ? '🖥️ UI' : '🔗 API';
+                        header.appendChild(badge);
                     }
                     
                     if (progressBarContainer) {
@@ -1206,6 +1218,9 @@ class MinerUApp {
                 // 更新文件数据
                 fileData.progress = task.progress || 0;
                 fileData.message = task.message || '';
+                if (task.origin) {
+                    fileData.origin = task.origin;  // 任务状态同步时补齐来源徽章
+                }
                 
                 // 更新时间信息
                 if (task.start_time) {
