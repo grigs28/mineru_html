@@ -1495,6 +1495,27 @@ body {
     max-width: 100%;   /* 配合 JS 中间截断，双保险控制显示长度 */
 }
 
+/* 任务来源徽章（v0.9.2）：UI 上传 / 外部 API */
+.origin-badge {
+    padding: 3px 7px;
+    border-radius: 10px;
+    font-size: 0.68em;
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-left: 6px;
+}
+
+.origin-badge.ui {
+    background: #eef3ff;
+    color: #4a6dd0;
+}
+
+.origin-badge.api {
+    background: #f3efff;
+    color: #7a5af8;
+}
+
 /* 失败原因展示（此前 errorMessage 已下发但未渲染） */
 .file-error-text {
     margin-top: 6px;

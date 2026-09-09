@@ -24,10 +24,11 @@ class QueueStatus(Enum):
 class TaskInfo:
     """任务信息类"""
     
-    def __init__(self, task_id: str, filename: str, upload_time: datetime):
+    def __init__(self, task_id: str, filename: str, upload_time: datetime, origin: str = "api"):
         self.task_id = task_id
         self.filename = filename
         self.upload_time = upload_time
+        self.origin = origin  # v0.9.2: 任务来源 "ui" / "api"（UI 上传带 source=ui，默认 api）
         self.status = TaskStatus.PENDING
         self.progress = 0
         self.message = "等待处理"
@@ -41,6 +42,7 @@ class TaskInfo:
         return {
             "task_id": self.task_id,
             "filename": self.filename,
+            "origin": self.origin,
             "upload_time": self.upload_time.isoformat(),
             "status": self.status.value,
             "progress": self.progress,

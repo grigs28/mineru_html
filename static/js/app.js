@@ -424,6 +424,12 @@ class MinerUApp {
                 const fullDisplayName = MinerUUtils.displayName(fileData.name);
                 const shortDisplayName = MinerUUtils.escapeHtml(MinerUUtils.truncateFilename(fullDisplayName));
 
+                // 来源徽章（v0.9.2）：UI 上传 / 外部 API
+                const origin = fileData.origin;
+                const originBadge = origin === 'ui'
+                    ? '<span class="origin-badge ui" title="来自浏览器 UI 上传">🖥️ UI</span>'
+                    : (origin === 'api' ? '<span class="origin-badge api" title="来自外部 API 调用">🔗 API</span>' : '');
+
                 // 失败原因直接展示在卡片上（后端 errorMessage 已下发，此前未渲染）
                 const errorBlock = (fileData.status === 'error' && fileData.errorMessage)
                     ? `<div class="file-error-text" title="${MinerUUtils.escapeHtml(String(fileData.errorMessage))}">⚠️ ${MinerUUtils.escapeHtml(MinerUUtils.truncateFilename(String(fileData.errorMessage), 80))}</div>`
@@ -436,6 +442,7 @@ class MinerUApp {
                             <span class="file-name" title="${MinerUUtils.escapeHtml(fullDisplayName)}">${shortDisplayName}</span>
                         </div>
                         <div class="status-badge ${fileData.status}">${statusBadge}</div>
+                        ${originBadge}
                     </div>
                     <div class="file-card-body">
                         ${progressBar}
@@ -819,6 +826,7 @@ class MinerUApp {
                     if (fileData.status === 'pending' && fileData.file instanceof Blob && !fileData.taskId) {
                         const formData = new FormData();
                         formData.append('files', fileData.file);
+                        formData.append('source', 'ui');  // v0.9.2: 标记 UI 来源（双道并发 + 徽章）
                         
                         try {
                             const response = await fetch('/api/upload_with_progress', {

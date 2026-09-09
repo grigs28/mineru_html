@@ -216,6 +216,7 @@ async def api_get_file_list():
                 file_info = {
                     "name": task.filename,
                     "size": file_size,
+                    "origin": task.origin,
                     "status": task.status.value,
                     "uploadTime": task.upload_time.isoformat() if task.upload_time else None,
                     "startTime": task.start_time.isoformat() if task.start_time else None,
@@ -494,7 +495,7 @@ async def parse_files(
                 try:
                     # 使用parse_pdf函数进行转换（v0.9.0: 与队列共享全局 GPU 槽位，总并发 2）
                     is_ocr = parse_method == 'ocr'
-                    async with task_manager.gpu_slots:
+                    async with task_manager.api_slots:
                         result = await parse_pdf(
                             doc_path=str(temp_path),
                             output_dir=output_dir,
@@ -1518,8 +1519,11 @@ async def find_pdf(q: str):
 
 # 新增的任务管理API端点
 @app.post("/api/upload_with_progress")
-async def upload_with_progress(files: List[UploadFile] = File(...)):
-    """上传文件并创建后台处理任务，支持进度条"""
+async def upload_with_progress(files: List[UploadFile] = File(...), source: str = Form("api")):
+    """上传文件并创建后台处理任务，支持进度条
+
+    source: 任务来源标记（UI 传 "ui"，外部调用方不传默认 "api"），v0.9.2 双道并发用
+    """
     try:
         task_ids = []
         
@@ -1557,7 +1561,7 @@ async def upload_with_progress(files: List[UploadFile] = File(...)):
                 task_manager.add_to_queue(task_id)
             else:
                 # 创建新任务
-                task_id = task_manager.create_task(file.filename)
+                task_id = task_manager.create_task(file.filename, origin=source)
                 
                 # 保存文件到output目录
                 output_path = os.path.join("./output", f"{task_id}_{file.filename}")
@@ -1754,7 +1758,13 @@ async def get_queue_status():
             "queue_status": task_manager.queue_status.value,
             "current_processing_task": task_manager.current_processing_task,
             "current_processing_tasks": list(task_manager.current_processing_tasks),  # v0.9.0 并发列表
-            "max_concurrent": task_manager.max_concurrent,
+            "max_concurrent": task_manager.max_concurrent_per_lane,
+            "lane_processing": {  # v0.9.2 双道占用情况
+                lane: sum(1 for tid in task_manager.current_processing_tasks
+                          if (task_manager.tasks.get(tid) and task_manager.tasks[tid].origin == lane) or
+                             (lane == "api" and task_manager.tasks.get(tid) and not task_manager.tasks[tid].origin))
+                for lane in ("ui", "api")
+            },
             "queued_tasks": queued_tasks,
             "queued_count": len(queued_tasks)
         })

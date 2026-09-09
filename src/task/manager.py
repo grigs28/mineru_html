@@ -19,15 +19,20 @@ class TaskManager:
         self.queue_status = QueueStatus.IDLE
         self.current_processing_task = None          # 兼容旧单值字段（=最近开始处理的任务）
         self.current_processing_tasks: List[str] = []  # v0.9.0: 并发处理中的任务列表
-        self.max_concurrent = 2                       # 队列工人数量（任一任务完成即取下一个）
-        # 全局 GPU 槽位：队列工人与 /file_parse 同步转换共享，总数 2（单 GPU 互斥的额度化）
-        self.gpu_slots = asyncio.Semaphore(self.max_concurrent)
+        self.max_concurrent_per_lane = 2              # v0.9.2: 每道(UI/API)各 2 并发
+        # 双道槽位：UI 与 API 各占 2，互不影响（总并发 4）；/file_parse 走 api_slots
+        self.ui_slots = asyncio.Semaphore(self.max_concurrent_per_lane)
+        self.api_slots = asyncio.Semaphore(self.max_concurrent_per_lane)
         self._workers_started = False
-        
-    def create_task(self, filename: str) -> str:
+
+    def lane_slots(self, lane: str) -> asyncio.Semaphore:
+        """按任务来源取槽位（未知来源归 api 道）"""
+        return self.ui_slots if lane == "ui" else self.api_slots
+
+    def create_task(self, filename: str, origin: str = "api") -> str:
         """创建新任务"""
         task_id = str(uuid.uuid4())
-        task = TaskInfo(task_id, filename, datetime.now())
+        task = TaskInfo(task_id, filename, datetime.now(), origin=origin)
         self.tasks[task_id] = task
         # 任务状态已更新，无需保存到文件
         return task_id
@@ -84,6 +89,7 @@ class TaskManager:
                     # 更新现有文件信息
                     file_info.update({
                         "status": task.status.value,
+                        "origin": task.origin,
                         "progress": task.progress,
                         "message": task.message,
                         "startTime": task.start_time.isoformat() if task.start_time else None,
@@ -100,6 +106,7 @@ class TaskManager:
                 new_file_info = {
                     "name": task.filename,
                     "size": 0,  # 文件大小信息可能丢失
+                    "origin": task.origin,
                     "status": task.status.value,
                     "uploadTime": task.upload_time.isoformat() if task.upload_time else None,
                     "startTime": task.start_time.isoformat() if task.start_time else None,
@@ -168,36 +175,40 @@ class TaskManager:
                 self._ensure_workers()
 
     def _ensure_workers(self):
-        """启动队列工人协程（max_concurrent 个，共享 FIFO）"""
+        """启动队列工人协程（每道 max_concurrent_per_lane 个，UI/API 双道互不堵塞）"""
         if self._workers_started:
             return
         self._workers_started = True
-        for i in range(self.max_concurrent):
-            asyncio.create_task(self._worker(i))
-        logger.info(f"已启动 {self.max_concurrent} 个队列工人")
+        for lane in ("ui", "api"):
+            for i in range(self.max_concurrent_per_lane):
+                asyncio.create_task(self._worker(f"{lane}{i}", lane))
+        logger.info(f"已启动队列工人: ui×{self.max_concurrent_per_lane} + api×{self.max_concurrent_per_lane}")
 
-    def _pick_next_task(self) -> Optional[str]:
-        """原子取出最早的排队任务并标记 PROCESSING。
+    def _pick_next_task(self, lane: str) -> Optional[str]:
+        """原子取出本道最早的排队任务并标记 PROCESSING。
 
-        事件循环内检查与改状态之间无 await，两个工人不会取到同一任务。
+        事件循环内检查与改状态之间无 await，同道工人不会取到同一任务；
+        按道过滤避免队头阻塞（他道任务占满不影响本道）。
         """
-        queued_tasks = self.get_queue_tasks()
-        if not queued_tasks:
+        queued = [tid for tid in self.get_queue_tasks()
+                  if (self.tasks[tid].origin or "api") == lane]
+        if not queued:
             return None
-        task_id = queued_tasks[0]
+        task_id = queued[0]
         task = self.tasks[task_id]
         task.status = TaskStatus.PROCESSING
         task.message = "等待GPU槽位"
         return task_id
 
-    async def _worker(self, worker_id: int):
-        """队列工人：持有 GPU 槽位期间处理一个任务，完成立即取下一个"""
+    async def _worker(self, worker_id: str, lane: str):
+        """队列工人：持本道槽位期间处理一个本道任务，完成立即取下一个"""
+        slots = self.lane_slots(lane)
         while self.queue_status == QueueStatus.RUNNING:
-            # 先抢 GPU 槽位再取任务，避免任务卡在 PROCESSING 等槽位
-            await self.gpu_slots.acquire()
-            task_id = self._pick_next_task()
+            # 先抢本道槽位再取任务，避免任务卡在 PROCESSING 等槽位
+            await slots.acquire()
+            task_id = self._pick_next_task(lane)
             if not task_id:
-                self.gpu_slots.release()
+                slots.release()
                 await asyncio.sleep(1)
                 continue
 
@@ -214,7 +225,7 @@ class TaskManager:
                 self.current_processing_task = (
                     self.current_processing_tasks[-1] if self.current_processing_tasks else None
                 )
-                self.gpu_slots.release()
+                slots.release()
                 # 任务完成后清理显存（只释放未占用缓存，不影响并行任务）
                 from src.utils.vram import cleanup_vram
                 cleanup_vram()

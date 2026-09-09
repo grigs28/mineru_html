@@ -65,7 +65,7 @@ python tests/test_refactoring.py     # 单独运行某个测试脚本（也可�
 - CLI 参数 `--enable-sglang-engine`（默认 True）保留作启用 VLM 引擎的 bool 开关（内部走 vlm-engine），向后兼容现有脚本/compose。
 
 ### 任务与状态（两层）
-1. **任务状态（内存）**：`TaskManager`（`src/task/manager.py`）单例，持有 `tasks: Dict[task_id, TaskInfo]` 与 `queue_status`。状态机 `PENDING → QUEUED → PROCESSING → COMPLETED | FAILED`；队列 `QueueStatus(IDLE/RUNNING/PAUSED)`。**v0.9.0 起 2 并发工人模型**（`_worker` × `max_concurrent=2`，`_pick_next_task` 原子取任务，任一任务完成即取下一个）；全局 GPU 槽位 `gpu_slots = Semaphore(2)` 由队列工人、`/file_parse`、`process_tasks_background` 三方共享。**任务状态不持久化**，重启即丢失。
+1. **任务状态（内存）**：`TaskManager`（`src/task/manager.py`）单例，持有 `tasks: Dict[task_id, TaskInfo]` 与 `queue_status`。状态机 `PENDING → QUEUED → PROCESSING → COMPLETED | FAILED`；队列 `QueueStatus(IDLE/RUNNING/PAUSED)`。**v0.9.2 起双道并发**：UI/API 各 2（`_worker(lane)` 每道 2 个，`ui_slots`/`api_slots` 各 Semaphore(2)，总并发 4）；任务来源 `TaskInfo.origin`（UI 上传带 `source=ui`，默认 api）；`_pick_next_task(lane)` 按道原子取任务，任一任务完成即取下一个；`/file_parse` 走 api_slots。**任务状态不持久化**，重启即丢失。
 2. **文件列表（持久化）**：`src/file/manager.py` 把文件列表写入 `config/file_list.json`（`threading.Lock` 线程安全），保证刷新页面 / 多客户端共享同一文件列表。该 JSON 是运行时数据，已纳入 git 跟踪。
 
 ### 模块拆分（v0.6.0 重构）

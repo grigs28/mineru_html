@@ -41,9 +41,9 @@ async def process_tasks_background(task_manager: TaskManager, task_ids: List[str
                 # 添加日志记录进度更新
                 logger.info(f"任务 {task_id} 进度更新: {progress}% - {message}")
 
-            # 使用现有的parse_pdf函数进行处理（共享全局 GPU 槽位，v0.9.0 起 2 并发）
+            # 使用现有的parse_pdf函数进行处理（v0.9.2: 按任务来源取本道槽位，UI/API 各 2 并发）
             from src.file.pdf_processor import parse_pdf
-            async with task_manager.gpu_slots:
+            async with task_manager.lane_slots(getattr(task, "origin", "api")):
                 result = await parse_pdf(
                     doc_path=uploaded_file,
                     output_dir=output_dir,

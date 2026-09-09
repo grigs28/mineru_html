@@ -1,5 +1,15 @@
 # 更新日志
 
+## [0.9.2] - 2026-09-09
+
+### ⚡ 双道并发：UI / API 各 2 任务（总 4）
+- 全局 Semaphore(2) 拆为 `ui_slots`/`api_slots` 双道：UI 任务与外部 API 任务各占 2 并发，互不影响
+- 队列工人改为 2 UI + 2 API，`_pick_next_task(lane)` 按道取任务（避免队头阻塞）
+- `/file_parse` 同步转换走 api_slots；旧后台路径按任务 origin 取本道槽位
+- `/api/queue/status` 新增 `lane_processing` 双道占用明细（纯增量）
+- **任务来源标记**：`upload_with_progress` 新增可选 `source` 表单字段（UI 传 `ui`，外部默认 `api`，对现有调用零影响）；`TaskInfo.origin` 贯通 file_list.json
+- **文件卡片来源徽章**：🖥️ UI / 🔗 API（一眼分辨浏览器上传与外部程序调用）
+
 ## [0.9.1] - 2026-09-09
 
 ### 🔐 yz-login 统一登录（方式一：ticket 回调，应用 ID 15）
