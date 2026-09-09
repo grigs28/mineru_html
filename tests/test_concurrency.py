@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from src.task.manager import TaskManager
-from src.task.models import TaskStatus
+from src.task.models import TaskStatus, QueueStatus
 
 REPO_ROOT = Path(__file__).parent.parent
 SIM_TASK_SEC = 3.0  # 模拟处理路径约 3s
@@ -98,7 +98,20 @@ def test_pick_next_task_atomic():
     print("✅ 原子取任务 + 按道过滤验证通过")
 
 
+def test_stop_queue_resets_workers_flag():
+    """v0.9.6 回归：清空/停止队列后 _workers_started 必须重置，
+    否则工人退出后队列空转（任务永远 QUEUED）"""
+    tm = _make_tm()
+    tm._workers_started = True  # 模拟工人曾启动
+    tm.queue_status = QueueStatus.RUNNING
+    tm.stop_queue()
+    assert tm._workers_started is False, "stop_queue 必须重置工人标志"
+    assert tm.current_processing_tasks == []
+    print("✅ stop_queue 重置工人标志验证通过")
+
+
 if __name__ == "__main__":
+    test_stop_queue_resets_workers_flag()
     test_pick_next_task_atomic()
     test_lanes_isolated()
     test_two_workers_overlap()

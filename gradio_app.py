@@ -353,11 +353,10 @@ async def api_remove_file(request: dict):
 async def api_clear_all():
     """清空所有任务和文件列表"""
     try:
-        # 清空任务管理器
+        # 清空任务管理器（v0.9.6: 走 stop_queue 重置工人标志，
+        # 否则工人退出后 _workers_started 残留 True，队列空转不再处理）
+        task_manager.stop_queue()
         task_manager.tasks.clear()
-        task_manager.current_processing_task = None
-        task_manager.current_processing_tasks = []
-        task_manager.queue_status = QueueStatus.IDLE
         # 任务和队列状态已重置，无需保存到文件
         
         # 清空服务器文件列表

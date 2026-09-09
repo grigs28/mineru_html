@@ -781,23 +781,7 @@ class MinerUApp {
                     return;
                 }
 
-                // 检查队列状态
-                try {
-                    const queueStatus = await this.getQueueStatus();
-                    if (queueStatus && queueStatus.queue_status === 'running') {
-                        alert('队列正在处理中，请等待当前任务完成后再开始新的转换');
-                        // 确保按钮保持禁用状态
-                        const convertBtn = document.getElementById('convertBtn');
-                        convertBtn.disabled = true;
-                        convertBtn.innerHTML = '<span class="icon">⏳</span><span class="btn-text">队列处理中</span>';
-                        convertBtn.title = '队列正在处理中，请等待完成';
-                        return;
-                    }
-                } catch (error) {
-                    console.warn('检查队列状态失败:', error);
-                    // 如果检查失败，继续执行（避免阻塞用户操作）
-                }
-
+                // v0.9.6: 队列常驻运行是正常状态，不再拦截——直接上传入队，工人会自动消化
                 this.isProcessing = true;
                 const convertBtn = document.getElementById('convertBtn');
                 convertBtn.disabled = true;
@@ -944,14 +928,12 @@ class MinerUApp {
                     const convertBtn = document.getElementById('convertBtn');
                     this.updateQueueBadge(queueStatus);
 
-                    if (queueStatus && queueStatus.queue_status === 'running') {
-                        // 队列正在运行，禁用按钮
-                        convertBtn.disabled = true;
-                        convertBtn.innerHTML = '<span class="icon">⏳</span><span class="btn-text">队列处理中</span>';
-                        convertBtn.title = '队列正在处理中，请等待完成';
+                    // v0.9.6: 队列常驻运行为正常状态，按钮始终可用（入队即可，工人自动消化）
+                    convertBtn.disabled = false;
+                    if (queueStatus && (queueStatus.queue_status === 'running' || (queueStatus.current_processing_tasks || []).length > 0)) {
+                        convertBtn.innerHTML = '<span class="icon">🚀</span><span class="btn-text">开始转换</span>';
+                        convertBtn.title = '队列正在后台运行，新文件将自动排队处理';
                     } else {
-                        // 队列空闲，启用按钮
-                        convertBtn.disabled = false;
                         convertBtn.innerHTML = '<span class="icon">🚀</span><span class="btn-text">开始转换</span>';
                         convertBtn.title = '开始转换';
                     }
