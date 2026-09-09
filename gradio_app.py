@@ -359,9 +359,15 @@ async def api_clear_all():
         return JSONResponse(status_code=500, content={"error": f"清空失败: {str(e)}"})
 
 @app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    """返回主页面（v0.9.1 起需 yz-login 登录；API 端点不受影响）"""
+async def read_root(request: Request, ticket: str = ""):
+    """返回主页面（v0.9.1 起需 yz-login 登录；API 端点不受影响）
+
+    v0.9.3: yz-login 按注册的应用 URL 跳回根路径（/?ticket=xxx），
+    根路径也要处理 ticket，转发给回调逻辑验票。
+    """
     from src.auth import verify_session_cookie, login_redirect_url, SESSION_COOKIE
+    if ticket:
+        return await yz_login_callback(ticket)
     if not verify_session_cookie(request.cookies.get(SESSION_COOKIE, "")):
         return RedirectResponse(url=login_redirect_url(), status_code=302)
     html_path = os.path.join(static_dir, "index.html")
