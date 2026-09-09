@@ -210,9 +210,9 @@ async def api_get_file_list():
             
             if not existing:
                 # 如果任务管理器中有但file_list中没有，则添加进去
-                # size 不再写死 0：外部 API 上传的文件前端不知情，直接从磁盘上的上传文件 stat
+                # v0.9.5: 优先用任务记录的 size（上传时已写入），否则 stat 磁盘原件
                 upload_path = os.path.join("./output", f"{task.task_id}_{task.filename}")
-                file_size = os.path.getsize(upload_path) if os.path.exists(upload_path) else 0
+                file_size = task.size or (os.path.getsize(upload_path) if os.path.exists(upload_path) else 0)
                 file_info = {
                     "name": task.filename,
                     "size": file_size,
@@ -239,13 +239,24 @@ async def api_get_file_list():
         # 按上传时间排序（最新的在前）
         file_list.sort(key=lambda x: x.get("uploadTime") or "", reverse=True)
 
-        # 回填历史条目的文件大小：外部 API 上传的条目 size 曾是写死的 0，
-        # 上传文件 ./output/{taskId}_{name} 仍在磁盘上时直接 stat 真实大小
+        # 回填文件大小（v0.9.5）：size 为 0 的条目依次尝试
+        # ① ./output/{taskId}_{name} 上传原件（仅转换完成前存在）
+        # ② 结果目录里的 *_origin.pdf（转换完成后原件被删，用 dumped 原件兜底，历史条目也受益）
         for file_info in file_list:
-            if not file_info.get("size") and file_info.get("taskId") and file_info.get("name"):
-                upload_path = os.path.join("./output", f"{file_info['taskId']}_{file_info['name']}")
+            if file_info.get("size"):
+                continue
+            task_id = file_info.get("taskId")
+            name = file_info.get("name")
+            if task_id and name:
+                upload_path = os.path.join("./output", f"{task_id}_{name}")
                 if os.path.exists(upload_path):
                     file_info["size"] = os.path.getsize(upload_path)
+                    continue
+            result_dir = file_info.get("outputDir") or file_info.get("result_path")
+            if result_dir and os.path.isdir(result_dir):
+                origins = glob.glob(os.path.join(result_dir, "**", "*_origin.pdf"), recursive=True)
+                if origins:
+                    file_info["size"] = os.path.getsize(origins[0])
 
         return JSONResponse(content=file_list)
     except Exception as e:
@@ -1561,7 +1572,8 @@ async def upload_with_progress(files: List[UploadFile] = File(...), source: str 
                 content = await file.read()
                 with open(output_path, "wb") as f:
                     f.write(content)
-                
+                task_manager.tasks[task_id].size = len(content)  # v0.9.5: 记录文件大小
+
                 # 重置任务状态为PENDING并加入队列
                 task_manager.update_task_status(task_id, TaskStatus.PENDING, 10, "文件重新上传完成")
                 task_manager.add_to_queue(task_id)
@@ -1576,7 +1588,8 @@ async def upload_with_progress(files: List[UploadFile] = File(...), source: str 
                 content = await file.read()
                 with open(output_path, "wb") as f:
                     f.write(content)
-                
+                task_manager.tasks[task_id].size = len(content)  # v0.9.5: 记录文件大小
+
                 # 更新任务状态为已上传
                 task_manager.update_task_status(task_id, TaskStatus.PENDING, 10, "文件上传完成")
                 

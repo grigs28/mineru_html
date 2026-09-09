@@ -29,6 +29,7 @@ class TaskInfo:
         self.filename = filename
         self.upload_time = upload_time
         self.origin = origin  # v0.9.2: 任务来源 "ui" / "api"（UI 上传带 source=ui，默认 api）
+        self.size = 0  # v0.9.5: 上传文件字节数（上传时记录，转换完成后原件删除也能显示）
         self.status = TaskStatus.PENDING
         self.progress = 0
         self.message = "等待处理"
@@ -43,6 +44,7 @@ class TaskInfo:
             "task_id": self.task_id,
             "filename": self.filename,
             "origin": self.origin,
+            "size": self.size,
             "upload_time": self.upload_time.isoformat(),
             "status": self.status.value,
             "progress": self.progress,

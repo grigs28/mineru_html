@@ -90,6 +90,7 @@ class TaskManager:
                     file_info.update({
                         "status": task.status.value,
                         "origin": task.origin,
+                        "size": task.size or file_info.get("size", 0),  # v0.9.5: 任务记录了真实大小才覆盖
                         "progress": task.progress,
                         "message": task.message,
                         "startTime": task.start_time.isoformat() if task.start_time else None,
@@ -105,7 +106,7 @@ class TaskManager:
             if not file_found:
                 new_file_info = {
                     "name": task.filename,
-                    "size": 0,  # 文件大小信息可能丢失
+                    "size": task.size or 0,  # v0.9.5: 上传时已记录字节数
                     "origin": task.origin,
                     "status": task.status.value,
                     "uploadTime": task.upload_time.isoformat() if task.upload_time else None,
