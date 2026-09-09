@@ -2,9 +2,9 @@
 
 基于 [Opendatalab MinerU](https://github.com/opendatalab/MinerU) 的 Web 封装，提供 PDF/图片文档转 Markdown 服务。
 
-> **v0.7.x**：基于官方 MinerU docker 构建，固定 **vlm-engine（vllm）** 后端，单容器部署。
+> **v0.9.x**：固定 **vlm-engine（vllm）** 后端，单容器部署；yz-login 统一登录（只锁 UI，API 全放行）；UI/API 双道并发（各 2 任务）。
 
-- 后端：FastAPI + mineru 3.x + vllm（VLM 推理）
+- 后端：FastAPI + mineru 3.4.x + vllm（VLM 推理）
 - 前端：纯 HTML/CSS/JS（marked + KaTeX）
 - 默认端口：**5555**
 
@@ -56,11 +56,15 @@ mineru_html/
 
 ## ✨ 主要功能
 
-- **多文件批量转换**：PDF/图片 → Markdown，逐一串行处理（避免显存冲突）
+- **统一登录**：yz-login ticket 回调（应用 ID 15），只锁 UI 页面，**外部 API 调用零影响**
+- **双道并发转换**：UI / 外部 API 各占 2 个 GPU 槽位（总 4 并发），任一任务完成即取下一个；吞吐较串行 +41%
+- **多文件批量转换**：PDF/图片 → Markdown，队列 FIFO
 - **VLM 引擎**：固定 vlm-engine（vllm），OCR + 数学公式（KaTeX）+ 表格识别
-- **实时状态**：待处理 / 处理中(进度) / 已完成 / 失败
+- **实时状态**：待处理 / 队列中 / 处理中(进度) / 已完成 / 失败（含真实错误信息）；header 队列状态徽章（转换中/待启动/空闲/已暂停）
+- **任务来源徽章**：🖥️ UI / 🔗 API 一眼分辨浏览器上传与外部程序调用
 - **预览**：点击文件列表任务卡片 → 左侧 PDF 预览（产物 layout PDF）+ 右侧 Markdown rendering / Markdown text / 输出文件
 - **下载**：单文件 / 全部 ZIP 打包；**API 直接获取 ZIP**（`/api/download_zip`）
+- **文件名兼容**：外部调用方 URL 编码文件名自动解码（防 Errno 36），超长名中间截断显示
 - **后台处理**：可关闭浏览器，服务端继续处理
 - **状态持久化**：文件列表刷新页面 / 多客户端共享
 
@@ -69,11 +73,14 @@ mineru_html/
 完整文档见 `docs/API调用说明.md`，交互式文档 `/docs`（Swagger）、`/redoc`。
 
 ```bash
-# 上传（自动创建任务并入队）
+# 上传（自动创建任务并入队；可选 source=ui 标记来源，默认 api）
 curl -F "files=@xxx.pdf" http://<ip>:5555/api/upload_with_progress
 
 # 轮询任务状态
 curl http://<ip>:5555/api/task/{task_id}
+
+# 队列状态（含双道占用 lane_processing）
+curl http://<ip>:5555/api/queue/status
 
 # 获取 Markdown 结果
 curl http://<ip>:5555/api/task/{task_id}/markdown
@@ -89,7 +96,7 @@ curl -o result.zip "http://<ip>:5555/api/download_zip?task_id={task_id}"
 - **版本单一来源**：`CHANGELOG.md`（`/api/version` 动态读取，同时返回 `mineru_version`）
 - **后端固定 vlm-engine**：`gradio_app.py` 用官方 `preload_vlm_model()` 预加载
 - **docker 构建四坑**：`DOCKER_BUILDKIT=0` / 容器内是 `python3` / apt 步骤允许失败跳过 / 文件后缀无点比较（详见 `CLAUDE.md`）
-- **单 GPU 互斥**：vllm 预分配显存，启动前必须停止其他占显存容器
+- **GPU 并发**：双道各 2 槽位（`ui_slots`/`api_slots`），vllm 预分配显存，启动前必须停止其他占显存容器
 
 ## 📝 开发
 
