@@ -6,6 +6,7 @@
 - 根因：转换完成即删除上传原件（`os.remove`），v0.8.1 的磁盘 stat 回填因此失效
 - 上传时把字节数记入 `TaskInfo.size` 并贯通 file_list.json（不再依赖磁盘文件存在）
 - `/api/file_list` 回填升级：size=0 条目依次尝试 ①上传原件 ②结果目录 `*_origin.pdf`（**历史已完成条目也能回填出真实大小**）
+- 容器时区修正：compose 增加 `TZ=Asia/Shanghai`（此前容器 UTC，任务时间/日志慢 8 小时）
 
 ## [0.9.4] - 2026-09-09
 

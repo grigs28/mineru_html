@@ -18,6 +18,7 @@ services:
       # yz-login 统一登录（v0.9.1）：会话签名密钥（生产固定值，防止重启后会话失效）
       SESSION_SECRET: "mineru-web-sess-71-prod"
       YZ_APP_ID: "15"
+      TZ: Asia/Shanghai   # 容器时区（默认 UTC，比北京时间慢 8 小时）
     # vllm 要求共享内存 / ipc
     ipc: host
     shm_size: 32gb
